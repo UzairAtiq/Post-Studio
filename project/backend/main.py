@@ -133,7 +133,7 @@ async def linkedin_callback(
     state: str | None = Query(default=None),
     error: str | None = Query(default=None),
     error_description: str | None = Query(default=None),
-) -> HTMLResponse:
+) -> Response:
     error_template = FRONTEND_DIR / "error.html"
 
     if error:
