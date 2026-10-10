@@ -3,8 +3,8 @@ import logging
 import urllib.parse
 import uuid
 from pathlib import Path
-from typing import Annotated, Any
-from fastapi import FastAPI, Form, HTTPException, Query, Request, Response, status
+from typing import Any
+from fastapi import FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 import requests
@@ -31,11 +31,10 @@ from data.token_storage import (
     refresh_linkedin_access_token,
     save_linkedin_token,
 )
+from routers.slack import router as slack_router
 from services.groq_service import generate_linkedin_post_content
 from services.linkedin_service import fetch_linkedin_person_urn
 from services.slack_service import (
-    execute_post_decision,
-    record_slack_decision,
     send_approval_request,
 )
 
@@ -59,6 +58,9 @@ if ASSETS_DIR.exists():
     app.mount("/assets", StaticFiles(directory=str(ASSETS_DIR)), name="assets")
 if FRONTEND_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
+
+# register api routers
+app.include_router(slack_router)
 
 def get_index_html_response() -> HTMLResponse:
     index_file = DIST_DIR / "index.html" if DIST_DIR.exists() else FRONTEND_DIR / "index.html"
@@ -294,46 +296,6 @@ def refresh_token_endpoint() -> dict[str, Any]:
             detail=result.get("error", "Token refresh failed."),
         )
     return {"status": "refreshed", "message": "LinkedIn access token successfully refreshed."}
-
-# slack interactive webhook endpoint
-@app.post("/slack/interactions")
-async def handle_slack_interactions(payload: Annotated[str, Form()]) -> Response:
-    try:
-        interaction_data = json.loads(payload)
-    except (json.JSONDecodeError, TypeError) as parse_err:
-        logger.error(f"failed to parse Slack interaction payload: {parse_err}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid JSON payload format.",
-        )
-
-    actions = interaction_data.get("actions", [])
-    if not actions:
-        logger.warning("received Slack interaction without actions")
-        return Response(status_code=status.HTTP_200_OK)
-
-    primary_action = actions[0]
-    action_id = primary_action.get("action_id", "")
-    post_id = primary_action.get("value", "")
-    response_url = interaction_data.get("response_url")
-
-    logger.info(f"processing Slack action: '{action_id}' for post_id: '{post_id}'")
-
-    if not post_id:
-        return Response(status_code=status.HTTP_200_OK)
-
-    # record decision in storage
-    record_slack_decision(
-        action_id=action_id,
-        post_id=post_id,
-        response_url=response_url,
-    )
-
-    # execute post decision immediately
-    execute_result = execute_post_decision(post_id=post_id)
-    logger.info(f"executed post decision for '{post_id}': {execute_result}")
-
-    return Response(status_code=status.HTTP_200_OK)
 
 # list all saved posts (or return React app if visited directly by browser)
 @app.get("/posts")
