@@ -111,7 +111,7 @@ def save_linkedin_token(
                 access_token,
                 refresh_token,
                 expires_at.isoformat() if expires_at else None,
-                refresh_expires_at.isoformat() if refresh_expires_in else None,
+                refresh_expires_at.isoformat() if refresh_expires_at else None,
                 profile_id,
                 person_urn,
                 scope,
