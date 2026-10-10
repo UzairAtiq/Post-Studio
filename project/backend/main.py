@@ -1,7 +1,6 @@
 import logging
 from typing import Any
-from fastapi import FastAPI, HTTPException, Request, status
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from config.settings import (
     DATABASE_URL,
@@ -11,12 +10,12 @@ from data.token_storage import (
     get_valid_linkedin_access_token,
 )
 from routers.auth import router as auth_router
+from routers.frontend import router as frontend_router
 from routers.posts import router as posts_router
 from routers.slack import router as slack_router
 from utils import (
     ASSETS_DIR,
     FRONTEND_DIR,
-    get_index_html_response,
 )
 
 # configure application logger
@@ -36,16 +35,6 @@ if ASSETS_DIR.exists():
 if FRONTEND_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
 
-# register api routers
-app.include_router(auth_router)
-app.include_router(posts_router)
-app.include_router(slack_router)
-
-# root dashboard endpoint
-@app.get("/", response_class=HTMLResponse)
-async def root_dashboard() -> HTMLResponse:
-    return get_index_html_response()
-
 # health check endpoint for cloud hosts
 @app.get("/health")
 def health_check() -> dict[str, Any]:
@@ -57,12 +46,12 @@ def health_check() -> dict[str, Any]:
         "linkedin_authenticated": token_valid,
     }
 
-# client-side routing fallback for React SPA
-@app.get("/{full_path:path}", response_class=HTMLResponse)
-async def spa_fallback(full_path: str, request: Request) -> Any:
-    if full_path.startswith(("health", "linkedin", "slack", "posts", "docs", "redoc", "openapi.json", "assets", "static")):
-        raise HTTPException(status_code=404, detail="Not found")
-    return get_index_html_response()
+# register api routers
+app.include_router(auth_router)
+app.include_router(posts_router)
+app.include_router(slack_router)
+# register frontend router last so SPA fallback does not swallow API routes
+app.include_router(frontend_router)
 
 # run server directly when executed
 if __name__ == "__main__":
