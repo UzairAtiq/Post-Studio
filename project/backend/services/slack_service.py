@@ -180,7 +180,9 @@ def update_slack_message(
     Raises:
         None.
     """
-    if action_type == "approved" or action_type == PostStatus.APPROVED:
+    if action_type in ("publish_failed", PostStatus.PUBLISH_FAILED) or "Failed" in detail_message:
+        status_text = f"⚠️ *Post `{post_id}` was approved, but publishing to LinkedIn failed.*"
+    elif action_type in ("approved", "published", PostStatus.APPROVED, PostStatus.PUBLISHED):
         status_text = f"✅ *Post `{post_id}` was APPROVED and published to LinkedIn!*"
     else:
         status_text = f"❌ *Post `{post_id}` was DISCARDED by user.*"

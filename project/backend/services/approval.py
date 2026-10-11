@@ -125,7 +125,7 @@ def execute_post_decision(post_id: str) -> dict[str, Any]:
                 update_slack_message(
                     response_url=response_url,
                     post_id=post_id,
-                    action_type="approved",
+                    action_type=PostStatus.PUBLISH_FAILED.value,
                     detail_message="Failed: LinkedIn is not connected. Please connect LinkedIn via the web dashboard.",
                 )
             return {"success": False, "error": "No LinkedIn access token available."}
@@ -147,7 +147,7 @@ def execute_post_decision(post_id: str) -> dict[str, Any]:
                 update_slack_message(
                     response_url=response_url,
                     post_id=post_id,
-                    action_type="approved",
+                    action_type=PostStatus.PUBLISHED.value,
                     detail_message=f"Published successfully to LinkedIn ({post_urn})",
                 )
             return {
@@ -167,7 +167,7 @@ def execute_post_decision(post_id: str) -> dict[str, Any]:
             update_slack_message(
                 response_url=response_url,
                 post_id=post_id,
-                action_type="approved",
+                action_type=PostStatus.PUBLISH_FAILED.value,
                 detail_message=f"Failed to publish to LinkedIn: {error_message}",
             )
         return {
