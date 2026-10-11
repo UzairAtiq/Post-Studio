@@ -4,7 +4,7 @@ import json
 import logging
 from typing import Annotated
 from fastapi import APIRouter, Form, HTTPException, Response, status
-from services.slack_service import (
+from services.approval import (
     execute_post_decision,
     record_slack_decision,
 )

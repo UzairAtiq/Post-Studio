@@ -11,9 +11,11 @@ from data.post_storage import (
 from mcp.server.fastmcp import FastMCP
 from services.groq_service import generate_linkedin_post_content
 from services.linkedin_service import fetch_linkedin_person_urn
-from services.slack_service import (
+from services.approval import (
     execute_post_decision,
     record_slack_decision,
+)
+from services.slack_service import (
     send_approval_request,
 )
 
