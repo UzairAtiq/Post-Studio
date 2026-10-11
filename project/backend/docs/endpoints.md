@@ -1,8 +1,8 @@
-# Backend Endpoints Overview
+# Backend Endpoints and Architecture Overview
 
-Overview of all endpoints exposed by the backend API service, organized by router file and execution pipelines.
+Overview of all endpoints, MCP tools, and services exposed by the LinkedIn Post Automation backend.
 
-## Endpoints Summary
+## 1. Route Table
 
 | Method | Path | File | One-Line Purpose |
 | :--- | :--- | :--- | :--- |
@@ -14,7 +14,7 @@ Overview of all endpoints exposed by the backend API service, organized by route
 | `GET` | `/callback` | [`routers/auth.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/routers/auth.py) | Legacy redirect alias for `/linkedin/callback`. |
 | `GET` | `/linkedin/status` | [`routers/auth.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/routers/auth.py) | Returns authentication status, masked token preview, expiry time, and refresh token availability. |
 | `POST` | `/linkedin/refresh` | [`routers/auth.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/routers/auth.py) | Renews access token using stored refresh token without requiring re-authentication. |
-| `POST` | `/slack/interactions` | [`routers/slack.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/routers/slack.py) | Receives interactive Slack button actions (approve/discard) and triggers post publication or disposal. |
+| `POST` | `/slack/interactions` | [`routers/slack.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/routers/slack.py) | Verifies Slack HMAC signature/timestamp, acknowledges within 3 seconds, and runs decision in background. |
 | `GET` | `/posts` | [`routers/posts.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/routers/posts.py) | Lists saved posts with optional status filter, or serves the frontend for direct browser visits. |
 | `GET` | `/posts/{post_id}` | [`routers/posts.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/routers/posts.py) | Retrieves details of a single post by ID with sensitive tokens masked. |
 | `DELETE` | `/posts/{post_id}` | [`routers/posts.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/routers/posts.py) | Deletes a stored post record from the database. |
@@ -22,27 +22,56 @@ Overview of all endpoints exposed by the backend API service, organized by route
 
 ---
 
-## Main Pipelines
+## 2. MCP Tool Table
 
-### 1. LinkedIn OAuth 2.0 Flow
-1. **Initiate:** User requests `GET /linkedin/login`. Backend builds authorization URL with scopes (`openid profile w_member_social email`) and CSRF `state`, issuing a 302 redirect.
-2. **Consent & Callback:** LinkedIn redirects user to `GET /linkedin/callback?code=...&state=...`.
-3. **Token Exchange:** Backend exchanges authorization code with `https://www.linkedin.com/oauth/v2/accessToken` for access and refresh tokens.
-4. **Duplicate Request Recovery:** If token exchange fails because the one-time code was already redeemed (e.g. page reload), checks database for an existing active token and redirects to `/` if present.
-5. **Profile Resolution & Storage:** Fetches user's identity via `https://api.linkedin.com/v2/userinfo` (or URN fallback), stores tokens and metadata in the database, and renders `callback.html`.
+| Tool | File | One-Line Purpose |
+| :--- | :--- | :--- |
+| `generate_and_request_approval` | [`mcp_servers/linkedin_server.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/mcp_servers/linkedin_server.py) | Generates post via Groq, stores record, delivers Slack Block Kit card, and optionally awaits human decision. |
+| `wait_for_approval_decision` | [`mcp_servers/linkedin_server.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/mcp_servers/linkedin_server.py) | Polls storage for human Slack approval/discard decision up to capped timeout and executes action. |
+| `approve_or_discard_post_directly` | [`mcp_servers/linkedin_server.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/mcp_servers/linkedin_server.py) | Programmatically records decision and publishes or discards post without Slack UI. |
+| `get_post_details` | [`mcp_servers/linkedin_server.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/mcp_servers/linkedin_server.py) | Fetches single post record by post ID with sensitive credentials masked. |
+| `list_all_generated_posts` | [`mcp_servers/linkedin_server.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/mcp_servers/linkedin_server.py) | Lists all saved post records with optional status filter and masked tokens. |
+| `lookup_customer` | [`mcp_servers/database_server.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/mcp_servers/database_server.py) | Queries database customers table for customer details by ID. |
+| `send_slack_message` | [`mcp_servers/slack_server.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/mcp_servers/slack_server.py) | Dispatches plain text notification to Slack channel via incoming webhook. |
 
-### 2. Post Generation Pipeline
-1. **Trigger:** Client invokes `POST /posts/generate?topic=...`.
-2. **Credential Validation:** Verifies that a valid, non-expired LinkedIn access token exists in storage.
-3. **Content Generation:** Calls Groq LLM to generate professional LinkedIn post content for the requested topic.
-4. **Persistence:** Generates a unique post ID and saves the post in storage with status `pending`.
-5. **Slack Notification:** Sends an interactive Slack Block Kit message with "Approve" and "Discard" buttons to the configured Slack webhook.
+---
 
-### 3. Slack Approval & Publishing Pipeline
-1. **Interaction:** Reviewer clicks "Approve" or "Discard" on the Slack interactive message.
-2. **Webhook Dispatch:** Slack sends form-encoded action payload to `POST /slack/interactions`.
-3. **Decision Recording:** Backend parses action ID (`approve_linkedin_post` or `discard_linkedin_post`) and stores the decision.
-4. **Execution:**
-   - **Approved:** Publishes content to LinkedIn using the UGC post API (`https://api.linkedin.com/v2/ugcPosts`), updates post status to `published` with share URN, and updates the Slack message with confirmation.
-   - **Discarded:** Updates post status to `discarded` and updates the Slack message to reflect rejection.
-5. **Acknowledgment:** Returns HTTP 200 acknowledgment to Slack.
+## 3. Service Table
+
+| File | Responsibility | Callers | Error Paradigm |
+| :--- | :--- | :--- | :--- |
+| [`services/storage.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/services/storage.py) | Single home for PostgreSQL, SQLite, and JSON fallback; post persistence; token lifecycle; schema init and status migrations. | `routers/auth.py`, `routers/posts.py`, `services/approval.py`, `mcp_servers/linkedin_server.py`, `main.py` | Graceful fallback across backends (PostgreSQL -> SQLite -> JSON); handles errors internally or returns None. |
+| [`services/approval.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/services/approval.py) | Decision recording (`record_slack_decision`), idempotent decision execution (`execute_post_decision`), and 2-second polling loop (`wait_for_decision`). | `routers/slack.py`, `mcp_servers/linkedin_server.py` | Returns structured outcome dictionaries (`{'success': bool, ...}`). |
+| [`services/slack_service.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/services/slack_service.py) | Slack Block Kit message formatting (`build_approval_blocks`), webhook dispatch (`send_approval_request`), and single home for card replacement (`update_slack_message`). | `routers/posts.py`, `services/approval.py`, `mcp_servers/linkedin_server.py` | Webhook delivery returns result dict; card replacement returns boolean success; raises `ValueError` if webhook URL unconfigured. |
+| [`services/groq_service.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/services/groq_service.py) | Groq LLM prompt construction and LinkedIn post content generation with Langfuse tracing. | `routers/posts.py`, `mcp_servers/linkedin_server.py` | **Raises exceptions**: Always raises `ValueError` or `RuntimeError` on config/API/rate-limit failures; never returns error dict. |
+| [`services/linkedin_service.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/services/linkedin_service.py) | LinkedIn profile/URN lookup (`fetch_linkedin_person_urn`) and UGC post publication (`publish_post_to_linkedin`). | `routers/auth.py`, `services/approval.py` | **Returns result dict**: Catches HTTP/network failures and returns `{'success': False, 'error': ...}`; does not raise on API errors. |
+
+---
+
+## 4. Short Step-by-Step Flows
+
+### Post Generation Flow
+1. Client requests `POST /posts/generate?topic=...` or MCP invokes `generate_and_request_approval`.
+2. Validates that a non-expired LinkedIn OAuth access token and author person URN are available.
+3. Generates high-impact post text via `groq_service.generate_linkedin_post_content`.
+4. Generates next post ID (`post_{count}_{hash}`) and saves post with `pending` status via `services.storage`.
+5. Sends Block Kit message with "Approve" and "Discard" buttons to Slack via `slack_service.send_approval_request`.
+
+### Slack Approval Flow
+1. Reviewer clicks "Approve" or "Discard" in Slack.
+2. Slack sends interaction payload to `POST /slack/interactions`.
+3. Endpoint verifies `X-Slack-Signature` and `X-Slack-Request-Timestamp` (<5 min old), rejecting forged or replayed requests with `401`.
+4. Endpoint synchronously records human choice in storage via `approval.record_slack_decision`.
+5. Endpoint enqueues `approval.execute_post_decision` in FastAPI `BackgroundTasks` and immediately returns HTTP `200` to satisfy Slack's 3-second limit.
+6. In background task, `execute_post_decision` checks idempotency. If not already finalized, it publishes to LinkedIn via `linkedin_service.publish_post_to_linkedin` (or marks discarded) and replaces Slack card via `slack_service.update_slack_message`.
+
+### LinkedIn OAuth Flow
+1. User visits `/linkedin/login` and is redirected to LinkedIn authorization URL with requested scopes.
+2. LinkedIn redirects user to `/linkedin/callback?code=...&state=...`.
+3. Backend exchanges code for access and refresh tokens, handling duplicate codes gracefully.
+4. Backend resolves person author URN via `/v2/userinfo` (or `/v2/me` fallback).
+5. Tokens and profile metadata are securely stored via `services.storage.save_linkedin_token`.
+
+### MCP Sync vs Async Approval Flow
+- **Async Mode (`wait_for_decision=False`):** `generate_and_request_approval` generates post, saves record, sends Slack notification, and immediately returns `status="pending_approval"` with post ID. The AI agent or caller can inspect post status later via `get_post_details`.
+- **Sync Mode (`wait_for_decision=True` or `wait_for_approval_decision`):** Tool calls `approval.wait_for_decision(post_id, timeout_seconds)`. Timeout is strictly capped to `MAX_APPROVAL_TIMEOUT_SECONDS` (300s). The polling loop checks storage every 2 seconds for Slack button clicks, triggers publication/discard upon detection, and returns the final execution result.
