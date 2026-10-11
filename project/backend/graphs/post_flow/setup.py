@@ -30,6 +30,21 @@ def _get_mcp_env() -> dict[str, str]:
     return env
 
 
+def _make_storage(raw: dict[str, Any] | None = None) -> defaultdict:
+    """Reconstruct nested defaultdict structure required by InMemorySaver."""
+    storage: defaultdict[str, defaultdict[str, dict[str, Any]]] = defaultdict(
+        lambda: defaultdict(dict)
+    )
+    if raw:
+        for k, v in raw.items():
+            inner: defaultdict[str, dict[str, Any]] = defaultdict(dict)
+            if isinstance(v, dict):
+                for ns, cp in v.items():
+                    inner[ns] = dict(cp) if isinstance(cp, dict) else cp
+            storage[k] = inner
+    return storage
+
+
 class PersistentCheckpointer(InMemorySaver):
     """File-backed checkpointer ensuring graph states survive process restarts.
 
@@ -49,7 +64,7 @@ class PersistentCheckpointer(InMemorySaver):
             try:
                 with open(self.file_path, "rb") as f:
                     data = pickle.load(f)
-                    self.storage = defaultdict(dict, data.get("storage", {}))
+                    self.storage = _make_storage(data.get("storage"))
                     self.writes = defaultdict(dict, data.get("writes", {}))
                     self.blobs = defaultdict(None, data.get("blobs", {}))
                 logger.info(f"Loaded persistent graph checkpoints from {self.file_path}")
@@ -62,7 +77,10 @@ class PersistentCheckpointer(InMemorySaver):
             with open(self.file_path, "wb") as f:
                 pickle.dump(
                     {
-                        "storage": dict(self.storage),
+                        "storage": {
+                            k: {ns: dict(cp) for ns, cp in v.items()}
+                            for k, v in self.storage.items()
+                        },
                         "writes": dict(self.writes),
                         "blobs": dict(self.blobs),
                     },
