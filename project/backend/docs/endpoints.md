@@ -38,6 +38,8 @@ Overview of all endpoints, MCP tools, and services exposed by the LinkedIn Post 
 
 ## 3. Service Table
 
+> For detailed function listings, dependency rules, and coding standards, see the [Services Layer Guide](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/services/README.md).
+
 | File | Responsibility | Callers | Error Paradigm |
 | :--- | :--- | :--- | :--- |
 | [`services/storage.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/services/storage.py) | Single home for PostgreSQL, SQLite, and JSON fallback; post persistence; token lifecycle; schema init and status migrations. | `routers/auth.py`, `routers/posts.py`, `services/approval.py`, `mcp_servers/linkedin_server.py`, `main.py` | Graceful fallback across backends (PostgreSQL -> SQLite -> JSON); handles errors internally or returns None. |
