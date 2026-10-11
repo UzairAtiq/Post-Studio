@@ -48,8 +48,8 @@ POSTS_STORAGE_PATH = os.getenv(
     str(BASE_DIR / "data" / "posts.json"),
 )
 
-# post execution flow mode: 'legacy' or 'graph' (default 'legacy')
-POST_FLOW_MODE = os.getenv("POST_FLOW_MODE", "legacy").lower().strip()
+# post execution flow mode: 'legacy' or 'graph' (default 'graph')
+POST_FLOW_MODE = os.getenv("POST_FLOW_MODE", "graph").lower().strip()
 
 # helper function to load valid linkedin access token dynamically
 def get_linkedin_access_token() -> str | None:

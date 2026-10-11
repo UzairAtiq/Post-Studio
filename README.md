@@ -48,7 +48,7 @@ Fill in the required keys in `.env`:
 * `SLACK_WEBHOOK_URL`
 * `LINKEDIN_CLIENT_ID`
 * `LINKEDIN_CLIENT_SECRET`
-* `POST_FLOW_MODE` — `legacy` (default procedural flow) or `graph` (LangGraph post flow with MCP tools and persistence)
+* `POST_FLOW_MODE` — `graph` (default LangGraph post flow with MCP tools and persistence) or `legacy` (procedural flow)
 
 ```bash
 # 3. Build frontend & run backend
