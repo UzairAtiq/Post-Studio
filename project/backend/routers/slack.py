@@ -149,6 +149,16 @@ async def handle_slack_interactions(
             detail="Invalid JSON payload format.",
         )
 
+    from config.settings import POST_FLOW_MODE
+
+    if POST_FLOW_MODE == "graph":
+        from services.post_graph import process_graph_slack_interaction
+
+        return process_graph_slack_interaction(
+            interaction_data=interaction_data,
+            background_tasks=background_tasks,
+        )
+
     from legacy.slack_flow import process_legacy_slack_interaction
 
     return process_legacy_slack_interaction(
