@@ -43,11 +43,12 @@ pip install -r project/backend/requirements.txt
 cp .env.example .env
 ```
 
-Fill in the 4 required keys in `.env`:
+Fill in the required keys in `.env`:
 * `GROQ_API_KEY`
 * `SLACK_WEBHOOK_URL`
 * `LINKEDIN_CLIENT_ID`
 * `LINKEDIN_CLIENT_SECRET`
+* `POST_FLOW_MODE` — `legacy` (default procedural flow) or `graph` (LangGraph post flow with MCP tools and persistence)
 
 ```bash
 # 3. Build frontend & run backend
@@ -56,6 +57,22 @@ cd ../backend && uvicorn main:app --reload --port 8000
 ```
 
 Open [http://localhost:8000](http://localhost:8000) to view the dashboard and connect your LinkedIn account.
+
+---
+
+## Post Flow Architecture & Modes
+
+The backend supports two interchangeable execution engines configured via `POST_FLOW_MODE`:
+
+* **`legacy` (default)**: Procedural post generation, storage, and Slack approval execution without graph orchestration.
+* **`graph`**: LangGraph workflow with fixed nodes, human-in-the-loop interruption, file-backed checkpointer resilience across server reboots, and thin MCP tool integration.
+
+```mermaid
+flowchart LR
+    A[generate] --> B[save] --> C[request_approval] --> D{interrupt}
+    D -->|approved| E[publish] --> G[final_check] --> H([END])
+    D -->|discarded| F[discard] --> G --> H
+```
 
 ---
 
