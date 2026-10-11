@@ -22,6 +22,34 @@ logger = logging.getLogger("post_flow_graph")
 POST_FLOW_RECURSION_LIMIT: int = 25
 
 
+def route_after_generate(state: PostFlowState) -> str:
+    """Route workflow to save on successful generation, or END on failure.
+
+    Args:
+        state: Current post flow state.
+
+    Returns:
+        str: Next node identifier ('save' or END).
+    """
+    if state.get("status") == "failed":
+        return END
+    return "save"
+
+
+def route_after_save(state: PostFlowState) -> str:
+    """Route workflow to request_approval on successful save, or END on failure.
+
+    Args:
+        state: Current post flow state.
+
+    Returns:
+        str: Next node identifier ('request_approval' or END).
+    """
+    if state.get("status") == "failed":
+        return END
+    return "request_approval"
+
+
 def route_after_decision(state: PostFlowState) -> str:
     """Route workflow to publication, disposal, or termination based on state.
 
@@ -69,8 +97,16 @@ def build_post_flow_graph(checkpointer: Any = None) -> CompiledStateGraph:
 
     # Establish linear and conditional edges
     builder.add_edge(START, "generate")
-    builder.add_edge("generate", "save")
-    builder.add_edge("save", "request_approval")
+    builder.add_conditional_edges(
+        "generate",
+        route_after_generate,
+        ["save", END],
+    )
+    builder.add_conditional_edges(
+        "save",
+        route_after_save,
+        ["request_approval", END],
+    )
     builder.add_conditional_edges(
         "request_approval",
         route_after_decision,
