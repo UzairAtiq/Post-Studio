@@ -14,6 +14,7 @@ from services.linkedin_service import fetch_linkedin_person_urn
 from services.approval import (
     execute_post_decision,
     record_slack_decision,
+    wait_for_decision,
 )
 from services.slack_service import (
     send_approval_request,
@@ -98,40 +99,7 @@ def generate_and_request_approval(
 @mcp.tool()
 def wait_for_approval_decision(post_id: str, timeout_seconds: int = 60) -> dict:
     """Wait and poll until the user clicks Approve or Discard in Slack for a given post ID, then execute action."""
-    start_time = time.time()
-    poll_interval = 2.0
-
-    while time.time() - start_time < timeout_seconds:
-        # retrieve post state from storage
-        record = get_post_by_id(post_id)
-        if not record:
-            return {"success": False, "error": f"Post '{post_id}' not found."}
-
-        current_status = record.get("status")
-
-        # execute decision if approved or discarded in slack
-        if current_status in (PostStatus.APPROVED, PostStatus.DISCARDED):
-            return execute_post_decision(post_id=post_id)
-
-        # return finalized status if already resolved
-        if current_status in (PostStatus.PUBLISHED, PostStatus.REJECTED, PostStatus.PUBLISH_FAILED):
-            return {
-                "success": current_status == PostStatus.PUBLISHED,
-                "post_id": post_id,
-                "status": current_status,
-                "linkedin_response": record.get("linkedin_response"),
-                "message": f"Post finalized with status: '{current_status}'",
-            }
-
-        time.sleep(poll_interval)
-
-    # return timeout error if no user interaction detected within window
-    return {
-        "success": False,
-        "post_id": post_id,
-        "status": "timed_out",
-        "message": f"Timed out after {timeout_seconds} seconds waiting for user response in Slack.",
-    }
+    return wait_for_decision(post_id=post_id, timeout_seconds=timeout_seconds)
 
 # mcp tool: directly approve or discard a post
 @mcp.tool()
