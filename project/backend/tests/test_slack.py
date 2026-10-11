@@ -1,7 +1,9 @@
 import asyncio
+import pytest
 from agent.tools import MCPClient
 
 # manually test invoking slack server tool over stdio
+@pytest.mark.anyio
 async def test_slack_invocation() -> None:
     client = MCPClient("mcp_servers.slack_server")
     await client.connect()

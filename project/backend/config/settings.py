@@ -23,6 +23,7 @@ GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
 # database and slack configuration
 DATABASE_URL = os.getenv("DATABASE_URL") or os.getenv("CONNECTION_STRING_SUPABASE")
 SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
+SLACK_SIGNING_SECRET = os.getenv("SLACK_SIGNING_SECRET", "")
 
 # linkedin oauth credentials and configuration
 LINKEDIN_CLIENT_ID = os.getenv("LINKEDIN_CLIENT_ID")
