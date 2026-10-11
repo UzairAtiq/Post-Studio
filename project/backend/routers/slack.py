@@ -3,7 +3,9 @@
 import json
 import logging
 from typing import Annotated
-from fastapi import APIRouter, Form, HTTPException, Response, status
+
+from fastapi import APIRouter, BackgroundTasks, Form, HTTPException, Response, status
+
 from services.approval import (
     execute_post_decision,
     record_slack_decision,
@@ -16,20 +18,24 @@ router = APIRouter(tags=["Slack"])
 
 # slack interactive webhook endpoint
 @router.post("/slack/interactions")
-async def handle_slack_interactions(payload: Annotated[str, Form()]) -> Response:
+async def handle_slack_interactions(
+    payload: Annotated[str, Form()],
+    background_tasks: BackgroundTasks,
+) -> Response:
     """Handle interactive button clicks from Slack approval messages.
 
     Purpose:
         Processes Slack Block Kit interactive actions (e.g., approving or
-        discarding a pending LinkedIn post) and executes the corresponding workflow.
+        discarding a pending LinkedIn post) and defers execution to BackgroundTasks
+        to immediately satisfy Slack's 3-second acknowledgment deadline.
 
     Steps:
         1. Parse the URL-encoded JSON payload received from Slack.
         2. Validate the action list and extract action ID, post ID, and response URL.
         3. If post ID is absent, acknowledge with HTTP 200 immediately.
-        4. Record the Slack decision in database storage.
-        5. Execute the post decision (publish to LinkedIn if approved, or discard).
-        6. Return an HTTP 200 acknowledgment to Slack.
+        4. Record the Slack decision in database storage synchronously.
+        5. Enqueue post decision execution (LinkedIn publish/discard and Slack update) in BackgroundTasks.
+        6. Return an HTTP 200 acknowledgment response to Slack immediately.
 
     Returns:
         Response: HTTP 200 OK acknowledgment for Slack.
@@ -68,8 +74,7 @@ async def handle_slack_interactions(payload: Annotated[str, Form()]) -> Response
         response_url=response_url,
     )
 
-    # execute post decision immediately
-    execute_result = execute_post_decision(post_id=post_id)
-    logger.info(f"executed post decision for '{post_id}': {execute_result}")
+    # run publish and message update in background to satisfy Slack 3-second limit
+    background_tasks.add_task(execute_post_decision, post_id=post_id)
 
     return Response(status_code=status.HTTP_200_OK)
