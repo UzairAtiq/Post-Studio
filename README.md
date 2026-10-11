@@ -58,6 +58,7 @@ Open [http://localhost:8000](http://localhost:8000) to view the dashboard and co
 
 ## Documentation
 
+* [API Endpoints & Pipelines](project/backend/docs/endpoints.md) — Complete route reference table and core workflow pipelines.
 * [Development & Testing](docs/development.md) — Running the LangGraph agent CLI, unit tests, and evaluations.
 * [LinkedIn App & OAuth Setup](docs/linkedin_setup.md) — Developer app creation, permissions, and 60-day token lifecycle.
 * [Slack App & Interactivity Setup](docs/slack_setup.md) — Webhooks, Block Kit approval cards, and interaction callbacks.
@@ -81,8 +82,10 @@ mcp-langraph-agent/
 │   │   ├── api/            # API entrypoints
 │   │   ├── config/         # App constants and settings
 │   │   ├── data/           # SQLite / PostgreSQL persistence and token store
+│   │   ├── docs/           # Backend endpoint specs and pipeline documentation
 │   │   ├── mcp_servers/    # Stdio MCP servers (db, slack, post_generator)
 │   │   ├── observability/  # Langfuse tracing
+│   │   ├── routers/        # Modular API routers (auth, posts, slack, frontend)
 │   │   ├── services/       # Integrations for Groq, LinkedIn, and Slack
 │   │   ├── tests/          # Test suite
 │   │   ├── main.py         # Unified FastAPI application
