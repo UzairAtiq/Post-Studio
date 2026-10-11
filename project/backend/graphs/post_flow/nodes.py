@@ -4,6 +4,7 @@ import logging
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
+from langgraph.errors import GraphInterrupt
 from langgraph.types import interrupt
 
 from graphs.post_flow.guards import can_publish_post, is_flow_complete
@@ -198,6 +199,8 @@ async def request_approval_node(
             "status": "decision_received",
             "slack_delivery": res.get("slack_delivery"),
         }
+    except GraphInterrupt:
+        raise
     except Exception as err:
         err_msg = f"Unexpected exception in request_approval node: {err}"
         logger.error(f"request_approval failed for post_id={post_id}: {err_msg}")
