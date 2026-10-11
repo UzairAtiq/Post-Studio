@@ -201,7 +201,7 @@ def get_post_details(post_id: str) -> dict[str, Any]:
 
 @mcp.tool()
 def list_all_generated_posts(status_filter: str = "") -> dict[str, Any]:
-    """List all saved LinkedIn posts, optionally filtered by status.
+    """List all saved LinkedIn posts, optionally filtered by status (pending, published, discarded).
 
     Purpose:
         Thin MCP tool listing stored posts with token sanitization and optional status filtering.

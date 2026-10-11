@@ -149,9 +149,9 @@ def execute_post_decision(post_id: str) -> dict[str, Any]:
             "error": error_message,
         }
 
-    # Handle discarded or rejected status
-    if current_status in (PostStatus.DISCARDED, PostStatus.REJECTED):
-        update_post_status(post_id=post_id, status=PostStatus.REJECTED)
+    # Handle discarded status
+    if current_status in (PostStatus.DISCARDED, "discarded", "rejected"):
+        update_post_status(post_id=post_id, status=PostStatus.DISCARDED)
         if response_url:
             update_slack_message(
                 response_url=response_url,
@@ -159,7 +159,7 @@ def execute_post_decision(post_id: str) -> dict[str, Any]:
                 action_type="discarded",
                 detail_message="Post has been marked as discarded.",
             )
-        return {"success": True, "status": PostStatus.REJECTED.value, "post_id": post_id}
+        return {"success": True, "status": PostStatus.DISCARDED.value, "post_id": post_id}
 
     # Handle already published status
     if current_status == PostStatus.PUBLISHED:
@@ -211,7 +211,7 @@ def wait_for_decision(post_id: str, timeout_seconds: int = 60) -> dict[str, Any]
             return execute_post_decision(post_id=post_id)
 
         # return finalized status if already resolved
-        if current_status in (PostStatus.PUBLISHED, PostStatus.REJECTED, PostStatus.PUBLISH_FAILED):
+        if current_status in (PostStatus.PUBLISHED, PostStatus.DISCARDED, PostStatus.PUBLISH_FAILED):
             return {
                 "success": current_status == PostStatus.PUBLISHED,
                 "post_id": post_id,

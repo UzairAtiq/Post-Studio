@@ -17,11 +17,10 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status = "pending", cl
     label = normalized === "published" ? "Published" : "Approved";
   } else if (
     normalized === "discarded" ||
-    normalized === "rejected" ||
     normalized === "publish_failed"
   ) {
     variant = "discarded";
-    label = normalized === "publish_failed" ? "Failed" : normalized === "rejected" ? "Rejected" : "Discarded";
+    label = normalized === "publish_failed" ? "Failed" : "Discarded";
   } else {
     variant = "pending";
     label = normalized === "pending_approval" ? "Pending Approval" : "Pending";

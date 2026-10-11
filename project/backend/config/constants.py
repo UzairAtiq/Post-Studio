@@ -6,5 +6,6 @@ class PostStatus(str, Enum):
     APPROVED = "approved"
     DISCARDED = "discarded"
     PUBLISHED = "published"
-    REJECTED = "rejected"
     PUBLISH_FAILED = "publish_failed"
+    # Legacy alias mapping to canonical discarded status
+    REJECTED = "discarded"

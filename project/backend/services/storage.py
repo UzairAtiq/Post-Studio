@@ -287,15 +287,61 @@ def init_database_tables() -> None:
         sqlite_conn.commit()
 
 
-def init_storage() -> None:
-    """Initialize storage tables and directories across all tiers.
+def migrate_legacy_rejected_status() -> None:
+    """Migrate legacy 'rejected' status values to canonical 'discarded' across storage tiers.
 
     Purpose:
-        Initializes schema tables and ensures fallback storage files exist.
+        Ensures existing database rows and JSON records with status 'rejected' are
+        updated to the unified status 'discarded'.
+
+    Steps:
+        1. Attempt updating PostgreSQL posts table rows where status = 'rejected'.
+        2. Attempt updating SQLite posts table rows where status = 'rejected'.
+        3. Scan JSON fallback file and convert any 'rejected' statuses to 'discarded'.
+
+    Returns:
+        None.
+
+    Raises:
+        None.
+    """
+    conn = get_postgres_connection()
+    if conn:
+        try:
+            with conn:
+                with conn.cursor() as cur:
+                    cur.execute("UPDATE posts SET status = 'discarded' WHERE status = 'rejected';")
+        except Exception as err:
+            logger.warning(f"PostgreSQL status migration notice: {err}")
+
+    try:
+        with get_sqlite_connection() as sqlite_conn:
+            sqlite_conn.execute("UPDATE posts SET status = 'discarded' WHERE status = 'rejected';")
+            sqlite_conn.commit()
+    except Exception as err:
+        logger.warning(f"SQLite status migration notice: {err}")
+
+    json_posts = _load_posts_from_json()
+    changed = False
+    for p in json_posts.values():
+        if p.get("status") == "rejected":
+            p["status"] = "discarded"
+            changed = True
+    if changed:
+        _save_posts_to_json(json_posts)
+
+
+def init_storage() -> None:
+    """Initialize storage tables, directories, and data migrations across all tiers.
+
+    Purpose:
+        Initializes schema tables, ensures fallback storage files exist, and applies
+        status normalization migrations.
 
     Steps:
         1. Run init_database_tables to prepare relational tables.
         2. Ensure JSON storage directory and file exist.
+        3. Run migrate_legacy_rejected_status to unify rejection statuses to 'discarded'.
 
     Returns:
         None.
@@ -305,6 +351,7 @@ def init_storage() -> None:
     """
     init_database_tables()
     _ensure_json_file()
+    migrate_legacy_rejected_status()
 
 
 # Compatibility aliases

@@ -121,7 +121,7 @@ def test_live_slack_approval_and_publish_flow(timeout_seconds: int = 120) -> dic
     print(f"  ✓ Post `{post_id}` generated and delivered to Slack.")
     print(f"  👉 Please check your Slack channel and click either:")
     print(f"     • '✅ Yes (Approve & Post)' -> publishes live to LinkedIn")
-    print(f"     • '❌ No (Discard)'          -> marks as rejected and updates storage")
+    print(f"     • '❌ No (Discard)'          -> marks as discarded and updates storage")
     print(f"  ⏳ Waiting up to {timeout_seconds} seconds for your button click...\n")
 
     # step 5: poll storage for real human interaction received from slack webhook
@@ -133,7 +133,7 @@ def test_live_slack_approval_and_publish_flow(timeout_seconds: int = 120) -> dic
         current_record = get_post_by_id(post_id)
         if current_record:
             status_value = current_record.get("status")
-            if status_value in ("approved", "discarded", "published", "rejected", "publish_failed"):
+            if status_value in ("approved", "discarded", "published", "publish_failed"):
                 detected_status = status_value
                 break
         time.sleep(poll_interval_seconds)
@@ -155,8 +155,8 @@ def test_live_slack_approval_and_publish_flow(timeout_seconds: int = 120) -> dic
         response_payload = final_record.get("linkedin_response", {})
         post_urn = response_payload.get("post_urn", "unknown")
         print(f"  🎉 Post `{post_id}` was APPROVED and published to LinkedIn! (URN: {post_urn})")
-    elif final_status == "rejected":
-        print(f"  🛑 Post `{post_id}` was DISCARDED and marked as rejected in database.")
+    elif final_status == "discarded":
+        print(f"  🛑 Post `{post_id}` was DISCARDED and marked as discarded in database.")
     elif final_status == "publish_failed":
         print(f"  ⚠️ Post `{post_id}` was approved but publishing to LinkedIn failed.")
     else:
