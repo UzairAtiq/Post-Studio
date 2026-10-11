@@ -191,6 +191,8 @@ def execute_post_decision(post_id: str) -> dict[str, Any]:
 
     return {"success": False, "error": f"Post '{post_id}' is in unhandled state: '{current_status}'"}
 
+def wait_for_decision(post_id: str, timeout_seconds: int = 60) -> dict[str, Any]:
+    """Poll storage until user reaches an approval decision in Slack (legacy routine)."""
+    from legacy.polling import wait_for_decision as legacy_wait
 
-from legacy.polling import wait_for_decision
-
+    return legacy_wait(post_id=post_id, timeout_seconds=timeout_seconds)
