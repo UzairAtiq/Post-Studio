@@ -23,18 +23,21 @@ POST_FLOW_RECURSION_LIMIT: int = 25
 
 
 def route_after_decision(state: PostFlowState) -> str:
-    """Route workflow to publication or disposal based on verified human decision.
+    """Route workflow to publication, disposal, or termination based on state.
 
     Purpose:
         Enforces human approval requirement: routes to publish ONLY if decision is approved.
-        Any other decision (or missing approval) routes to discard.
+        If approval request failed, routes to END immediately. Any other decision routes to discard.
 
     Args:
         state: Current post flow state containing human decision.
 
     Returns:
-        str: Next node identifier ('publish' or 'discard').
+        str: Next node identifier ('publish', 'discard', or END).
     """
+    if state.get("status") == "failed":
+        return END
+
     decision = str(state.get("decision", "")).strip().lower()
     if decision in ("approved", "approve_linkedin_post"):
         return "publish"
@@ -71,7 +74,7 @@ def build_post_flow_graph(checkpointer: Any = None) -> CompiledStateGraph:
     builder.add_conditional_edges(
         "request_approval",
         route_after_decision,
-        ["publish", "discard"],
+        ["publish", "discard", END],
     )
     builder.add_edge("publish", "final_check")
     builder.add_edge("discard", "final_check")
