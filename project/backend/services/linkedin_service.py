@@ -1,8 +1,9 @@
+"""LinkedIn REST API service for author profile resolution and UGC post publication."""
+
 import logging
 import requests
 from config.settings import LINKEDIN_PERSON_URN, get_linkedin_access_token
 
-# configure linkedin service logger
 logger = logging.getLogger("linkedin_service")
 
 # linkedin api endpoint constants
@@ -10,20 +11,41 @@ LINKEDIN_USERINFO_URL = "https://api.linkedin.com/v2/userinfo"
 LINKEDIN_ME_URL = "https://api.linkedin.com/v2/me"
 LINKEDIN_UGC_POST_URL = "https://api.linkedin.com/v2/ugcPosts"
 
-# fetch the linkedin person urn using the access token
+
 def fetch_linkedin_person_urn(access_token: str | None = None) -> str:
-    # retrieve access token from argument or environment/file fallback
+    """Fetch LinkedIn person URN using active OAuth access token.
+
+    Error Paradigm:
+        RAISES EXCEPTIONS. Raises ValueError if token is absent or RuntimeError
+        if both userinfo and /v2/me endpoints fail to resolve member identity.
+
+    Purpose:
+        Resolves author person URN (e.g., 'urn:li:person:abcdef') required for authoring posts.
+
+    Steps:
+        1. Retrieve access token from parameter or token storage fallback.
+        2. If access token is missing, raise ValueError.
+        3. Check LINKEDIN_PERSON_URN config override; return if present.
+        4. Query OpenID /v2/userinfo endpoint for 'sub' field.
+        5. If userinfo endpoint fails or lacks sub, query legacy /v2/me endpoint for 'id'.
+        6. Return formatted author URN string or raise RuntimeError if resolution fails.
+
+    Returns:
+        str: LinkedIn person URN formatted as 'urn:li:person:<id>'.
+
+    Raises:
+        ValueError: If LinkedIn access token is missing.
+        RuntimeError: If all LinkedIn profile endpoints fail.
+    """
     token = access_token or get_linkedin_access_token()
     if not token:
         raise ValueError("LinkedIn access token is missing. Please authenticate first.")
 
-    # check if direct person urn is already configured
     if LINKEDIN_PERSON_URN:
         return LINKEDIN_PERSON_URN.strip()
 
     headers = {"Authorization": f"Bearer {token}"}
 
-    # try openid userinfo endpoint first
     try:
         response = requests.get(LINKEDIN_USERINFO_URL, headers=headers, timeout=10)
         if response.status_code == 200:
@@ -34,7 +56,6 @@ def fetch_linkedin_person_urn(access_token: str | None = None) -> str:
     except requests.RequestException as err:
         logger.warning(f"failed to fetch person urn from userinfo endpoint: {err}")
 
-    # fallback to /v2/me endpoint
     try:
         response = requests.get(LINKEDIN_ME_URL, headers=headers, timeout=10)
         if response.status_code == 200:
@@ -45,15 +66,40 @@ def fetch_linkedin_person_urn(access_token: str | None = None) -> str:
     except requests.RequestException as err:
         logger.warning(f"failed to fetch member id from /v2/me endpoint: {err}")
 
-    # raise error when all urn resolution methods fail
     raise RuntimeError("unable to resolve LinkedIn Person URN using provided access token")
 
-# publish a text post to linkedin
+
 def publish_post_to_linkedin(
     content: str,
     access_token: str | None = None,
     person_urn: str | None = None,
 ) -> dict:
+    """Publish text commentary to LinkedIn member profile feed.
+
+    Error Paradigm:
+        RETURNS RESULT DICT. This function adheres strictly to returning result
+        dictionaries (`{'success': False, 'status': 'failed', 'error': ...}`)
+        for all HTTP status errors, API response failures, and network timeouts.
+        It does not raise exceptions for API or communication failures.
+
+    Purpose:
+        Submits formatted UGC post payload to LinkedIn ugcPosts REST endpoint.
+
+    Steps:
+        1. Resolve access token; raise ValueError if no token exists.
+        2. Resolve author person URN via parameter or fetch_linkedin_person_urn.
+        3. Build UGC post JSON payload with PUBLIC visibility and NONE media category.
+        4. Send HTTP POST request to LINKEDIN_UGC_POST_URL with 15-second timeout.
+        5. If HTTP 200 or 201, parse post URN from response and return success dict.
+        6. If non-200 HTTP status, log error and return structured failure dict.
+        7. If requests.RequestException occurs, catch and return network failure dict.
+
+    Returns:
+        dict: Status dictionary containing success flag, post_urn, author, or error details.
+
+    Raises:
+        ValueError: If access token is completely missing prior to submission.
+    """
     # retrieve access token from argument or configuration
     token = access_token or get_linkedin_access_token()
     if not token:

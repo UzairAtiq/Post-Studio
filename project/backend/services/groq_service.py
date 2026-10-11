@@ -1,14 +1,41 @@
+"""Groq LLM text generation service for crafting LinkedIn posts."""
+
 import logging
 from groq import Groq
 from langfuse import observe
 from config.settings import GROQ_API_KEY, GROQ_MODEL
 
-# configure service logger
 logger = logging.getLogger("groq_service")
 
-# generate a linkedin post using the groq llm with langfuse tracing
+
 @observe(name="generate_linkedin_post")
 def generate_linkedin_post_content(topic: str = "modern software engineering and AI agents") -> str:
+    """Generate high-impact LinkedIn post text using Groq LLM API.
+
+    Error Paradigm:
+        RAISES EXCEPTIONS. This service follows an exception-raising error style;
+        any configuration, API, rate limit, or generation failures raise exceptions
+        directly to the caller. It never returns error dictionaries.
+
+    Purpose:
+        Calls the Groq completions endpoint to craft engaging, professional
+        LinkedIn copy without emoji embellishments according to system prompts.
+
+    Steps:
+        1. Validate GROQ_API_KEY configuration; raise ValueError if absent.
+        2. Instantiate the Groq API client with configured credentials.
+        3. Define system persona and format constraints (concise, no emojis, 3-5 hashtags).
+        4. Send chat completion request to configured Groq model.
+        5. Extract response text and validate non-emptiness.
+        6. Return stripped post text string.
+
+    Returns:
+        str: Clean generated post content ready for human review.
+
+    Raises:
+        ValueError: If GROQ_API_KEY environment variable is missing.
+        RuntimeError: If Groq API request fails, times out, or returns empty text.
+    """
     # validate api key existence before initializing client
     if not GROQ_API_KEY:
         raise ValueError("GROQ_API_KEY is not set. Please provide it in the .env file.")
