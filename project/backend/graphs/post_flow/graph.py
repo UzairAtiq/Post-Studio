@@ -66,7 +66,7 @@ def route_after_decision(state: PostFlowState) -> str:
     if state.get("status") == "failed":
         return END
 
-    decision = str(state.get("decision", "")).strip().lower()
+    decision = (state.get("decision") or "").strip().lower()
     if decision in ("approved", "approve_linkedin_post"):
         return "publish"
     return "discard"
@@ -85,7 +85,7 @@ def build_post_flow_graph(checkpointer: Any = None) -> CompiledStateGraph:
     Returns:
         CompiledStateGraph: Compiled LangGraph executable graph.
     """
-    builder = StateGraph(PostFlowState)
+    builder = StateGraph(PostFlowState)  # type: ignore[arg-type]
 
     # Register workflow nodes
     builder.add_node("generate", generate_node)
