@@ -3,7 +3,10 @@
 from typing import Any
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from config.constants import PostStatus
-from config.settings import get_linkedin_person_urn
+from config.settings import (
+    POST_FLOW_MODE,
+    get_linkedin_person_urn,
+)
 from services.storage import (
     delete_post_record,
     generate_next_post_id,
@@ -153,8 +156,6 @@ async def generate_post_endpoint(
     Raises:
         HTTPException: 401 Unauthorized if LinkedIn is not authenticated.
     """
-    from config.settings import POST_FLOW_MODE
-
     if POST_FLOW_MODE == "graph":
         from services.post_graph import start_post_flow
 
