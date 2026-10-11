@@ -28,8 +28,8 @@ This triggers the state graph to generate a post via Groq LLM, save it to the da
 Run the test suite across agent nodes, tools, and MCP servers:
 
 ```bash
-# Run agent tests
-pytest project/backend/tests/test_agent.py
+# Run post graph tests
+pytest project/backend/tests/test_post_graph.py
 
 # Run MCP server tests
 pytest project/backend/tests/test_mcp_servers.py

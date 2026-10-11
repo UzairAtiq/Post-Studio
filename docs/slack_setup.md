@@ -93,7 +93,6 @@ To test your Slack integration without running the full agent workflow:
 ```bash
 # Activate your virtual environment and run the Slack test suite
 source .venv/bin/activate
-pytest project/backend/tests/test_slack.py
 pytest project/backend/tests/test_mcp_servers.py -k test_slack
 ```
 This sends a test message directly to your configured channel and verifies webhook delivery.

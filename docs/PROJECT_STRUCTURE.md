@@ -22,7 +22,7 @@ mcp-langraph-agent/
 ├── .gitignore              # Git ignore rules
 ├── project/
 │   ├── backend/            # Python backend service
-│   │   ├── agent/          # LangGraph agent definitions, graph orchestration, nodes, tools
+│   │   ├── graphs/         # LangGraph post flow state graph, guards, nodes, and setup
 │   │   ├── api/            # API compatibility wrappers and entry points
 │   │   ├── config/         # Centralized configuration and constants
 │   │   ├── data/           # Database models, token storage, and post storage
@@ -68,14 +68,13 @@ Contains the complete Python application, LangGraph workflow, MCP tool servers, 
 | Directory / File | Description |
 | :--- | :--- |
 | `main.py` | **Primary FastAPI Entry Point**: Serves REST APIs (`/health`, `/posts`, `/generate`), handles OAuth callbacks, receives interactive Slack button payloads (`/slack/interactions`), mounts frontend static assets, and manages lifespan lifecycle for checkpointers and MCP clients. |
-| `agent/` | **Agent Orchestration**: Conversational agent graph compiler, nodes, state dictionary, and tools. |
 | `graphs/post_flow/` | **LangGraph Post Flow**: Production post generation & approval graph with human-in-the-loop interruption: state schema (`state.py`), guards (`guards.py`), setup & persistent checkpointer (`setup.py`), node implementations (`nodes.py`), and graph compiler (`graph.py`). |
 | `legacy/` | **Legacy Flow Preserved**: Procedural post generation (`post_flow.py`), polling (`polling.py`), and Slack handling (`slack_flow.py`). |
 | `services/` | **Centralized Services**: Single source of truth for post operations (`post_service.py`), graph workflow interface (`post_graph.py`), Slack messaging (`slack_service.py`), Groq LLM (`groq_service.py`), LinkedIn REST API (`linkedin_service.py`), and storage (`storage.py`). |
 | `config/` | **Application Config**: Environment settings including `POST_FLOW_MODE` ("legacy" \| "graph"), base directory resolution, and constants (`constants.py`, `settings.py`). |
 | `mcp_servers/` | **Model Context Protocol Servers**: Stdio tool servers for database queries (`db_server.py`), post lifecycle tools (`linkedin_server.py`), and Slack message dispatching (`slack_server.py`). Thin wrappers delegating directly to centralized services. |
 | `observability/` | **Telemetry**: Langfuse tracing integration and callback handler setup (`tracing.py`). |
-| `tests/` | **Automated Tests**: Unit and integration test suites (`test_post_graph.py`, `test_mcp_servers.py`, `test_linkedin_post_flow.py`, `test_slack.py`, `test_agent.py`). |
+| `tests/` | **Automated Tests**: Unit and integration test suites (`test_post_graph.py`, `test_mcp_servers.py`, `test_linkedin_post_flow.py`). |
 | `Procfile` | **Cloud Process Config**: Declares the web process command (`uvicorn main:app --host 0.0.0.0 --port $PORT`). |
 | `requirements.txt` | **Dependencies**: Packages required to run the backend service. |
 
@@ -130,7 +129,7 @@ sequenceDiagram
     participant LI as LinkedIn API
 
     User->>API: Submit Topic (Generate Request)
-    API->>Graph: Invoke Workflow (agent/graph.py)
+    API->>Graph: Invoke Workflow (graphs/post_flow/graph.py)
     Graph->>Groq: Generate Post Content (services/groq_service.py)
     Groq-->>Graph: Draft Text
     Graph->>DB: Save Post (Status: PENDING)

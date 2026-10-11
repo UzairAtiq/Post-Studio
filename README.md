@@ -167,8 +167,8 @@ mcp-langraph-agent/
 ├── .gitignore              # Git ignore rules
 ├── assets/                 # Media and demo assets
 ├── project/
-│   ├── backend/            # FastAPI, LangGraph agent, MCP servers, data, and tests
-│   │   ├── agent/          # State graph, workflow nodes, and tool adapters
+│   ├── backend/            # FastAPI, LangGraph workflow, MCP servers, data, and tests
+│   │   ├── graphs/         # LangGraph state graph, workflow nodes, and guards
 │   │   ├── api/            # API entrypoints
 │   │   ├── config/         # App constants and settings
 │   │   ├── data/           # SQLite / PostgreSQL persistence and token store
