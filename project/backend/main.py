@@ -111,6 +111,7 @@ def health_check() -> dict[str, Any]:
     return {
         "status": "healthy",
         "service": "linkedin-slack-agent",
+        "flow_mode": POST_FLOW_MODE,
         "database": "postgresql" if DATABASE_URL else "sqlite",
         "linkedin_authenticated": token_valid,
     }
