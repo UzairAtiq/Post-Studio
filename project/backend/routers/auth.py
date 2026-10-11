@@ -12,7 +12,7 @@ from config.settings import (
     LINKEDIN_CLIENT_ID,
     LINKEDIN_CLIENT_SECRET,
 )
-from data.token_storage import (
+from services.storage import (
     get_linkedin_token_record,
     refresh_linkedin_access_token,
     save_linkedin_token,

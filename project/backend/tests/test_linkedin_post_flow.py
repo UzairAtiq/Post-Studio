@@ -10,18 +10,18 @@ if str(PROJECT_ROOT) not in sys.path:
 from starlette.testclient import TestClient
 from api.main import app
 from config.settings import get_linkedin_access_token
-from data.post_storage import (
+from services.storage import (
     generate_next_post_id,
     get_post_by_id,
     save_post_record,
     update_post_status,
 )
-from mcp_servers.linkedin_post_generator import get_post_details
+from mcp_servers.linkedin_server import get_post_details
+from services.approval import execute_post_decision
 from services.groq_service import generate_linkedin_post_content
 from services.linkedin_service import fetch_linkedin_person_urn
 from services.slack_service import (
     build_approval_blocks,
-    execute_post_decision,
     send_approval_request,
 )
 

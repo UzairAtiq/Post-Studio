@@ -63,7 +63,7 @@ async def get_langgraph_tools() -> list:
         {
             "database": {
                 "command": sys.executable,
-                "args": ["-m", "mcp_servers.db_server"],
+                "args": ["-m", "mcp_servers.database_server"],
                 "transport": "stdio",
                 "cwd": str(BACKEND_DIR),
                 "env": server_env,
@@ -75,9 +75,9 @@ async def get_langgraph_tools() -> list:
                 "cwd": str(BACKEND_DIR),
                 "env": server_env,
             },
-            "linkedin_post_generator": {
+            "linkedin_server": {
                 "command": sys.executable,
-                "args": ["-m", "mcp_servers.linkedin_post_generator"],
+                "args": ["-m", "mcp_servers.linkedin_server"],
                 "transport": "stdio",
                 "cwd": str(BACKEND_DIR),
                 "env": server_env,

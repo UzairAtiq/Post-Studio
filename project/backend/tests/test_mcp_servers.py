@@ -1,7 +1,7 @@
 import asyncio
 from agent.tools import MCPClient
-from mcp_servers.db_server import lookup_customer
-from mcp_servers.linkedin_post_generator import (
+from mcp_servers.database_server import lookup_customer
+from mcp_servers.linkedin_server import (
     get_post_details,
     list_all_generated_posts,
 )

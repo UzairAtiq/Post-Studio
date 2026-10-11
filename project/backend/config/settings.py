@@ -50,7 +50,7 @@ POSTS_STORAGE_PATH = os.getenv(
 # helper function to load valid linkedin access token dynamically
 def get_linkedin_access_token() -> str | None:
     try:
-        from data.token_storage import get_valid_linkedin_access_token
+        from services.storage import get_valid_linkedin_access_token
         token = get_valid_linkedin_access_token()
         if token:
             return token
@@ -76,7 +76,7 @@ def get_linkedin_access_token() -> str | None:
 # helper function to extract person urn dynamically from database or env
 def get_linkedin_person_urn() -> str | None:
     try:
-        from data.token_storage import get_stored_person_urn
+        from services.storage import get_stored_person_urn
         stored_urn = get_stored_person_urn()
         if stored_urn:
             return stored_urn.strip()

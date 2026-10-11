@@ -6,7 +6,7 @@ from config.settings import (
     DATABASE_URL,
     PORT,
 )
-from data.token_storage import (
+from services.storage import (
     get_valid_linkedin_access_token,
 )
 from routers.auth import router as auth_router
