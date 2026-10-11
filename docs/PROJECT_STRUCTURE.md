@@ -67,15 +67,15 @@ Contains the complete Python application, LangGraph workflow, MCP tool servers, 
 
 | Directory / File | Description |
 | :--- | :--- |
-| `main.py` | **Primary FastAPI Entry Point**: Serves REST APIs (`/health`, `/posts`, `/generate`), handles OAuth callbacks (`/auth/linkedin`, `/linkedin/callback`), receives interactive Slack button payloads (`/slack/interactions`), mounts frontend static assets, and manages background token refreshes. |
-| `agent/` | **LangGraph Orchestration**: State graph compiler (`graph.py`), graph nodes (`nodes.py`), typed agent state dictionary (`state.py`), and MCP client tool bindings (`tools.py`). |
-| `api/` | **Compatibility Layer**: Imports `app` from `main.py` for uvicorn entry compatibility. |
-| `config/` | **Application Config**: Environment settings, base directory resolution, and constants (`constants.py`, `settings.py`). |
-| `data/` | **Persistence Layer**: Multi-tier storage supporting PostgreSQL and local SQLite (`db.py`), post lifecycle tracking (`post_storage.py`), and OAuth token lifecycle management (`token_storage.py`). |
-| `mcp_servers/` | **Model Context Protocol Servers**: Stdio tool servers for database queries (`db_server.py`), post generation (`linkedin_post_generator.py`), and Slack message dispatching (`slack_server.py`). |
+| `main.py` | **Primary FastAPI Entry Point**: Serves REST APIs (`/health`, `/posts`, `/generate`), handles OAuth callbacks, receives interactive Slack button payloads (`/slack/interactions`), mounts frontend static assets, and manages lifespan lifecycle for checkpointers and MCP clients. |
+| `agent/` | **Agent Orchestration**: Conversational agent graph compiler, nodes, state dictionary, and tools. |
+| `graphs/post_flow/` | **LangGraph Post Flow**: Production post generation & approval graph with human-in-the-loop interruption: state schema (`state.py`), guards (`guards.py`), setup & persistent checkpointer (`setup.py`), node implementations (`nodes.py`), and graph compiler (`graph.py`). |
+| `legacy/` | **Legacy Flow Preserved**: Procedural post generation (`post_flow.py`), polling (`polling.py`), and Slack handling (`slack_flow.py`). |
+| `services/` | **Centralized Services**: Single source of truth for post operations (`post_service.py`), graph workflow interface (`post_graph.py`), Slack messaging (`slack_service.py`), Groq LLM (`groq_service.py`), LinkedIn REST API (`linkedin_service.py`), and storage (`storage.py`). |
+| `config/` | **Application Config**: Environment settings including `POST_FLOW_MODE` ("legacy" \| "graph"), base directory resolution, and constants (`constants.py`, `settings.py`). |
+| `mcp_servers/` | **Model Context Protocol Servers**: Stdio tool servers for database queries (`db_server.py`), post lifecycle tools (`linkedin_server.py`), and Slack message dispatching (`slack_server.py`). Thin wrappers delegating directly to centralized services. |
 | `observability/` | **Telemetry**: Langfuse tracing integration and callback handler setup (`tracing.py`). |
-| `services/` | **External Services**: Client wrappers for Groq LLM (`groq_service.py`), LinkedIn REST API (`linkedin_service.py`), and Slack Block Kit (`slack_service.py`). |
-| `tests/` | **Automated Tests**: Unit and integration test suites (`test_agent.py`, `test_mcp_servers.py`, `test_linkedin_post_flow.py`, `test_slack.py`, `linkedin_token.py`). |
+| `tests/` | **Automated Tests**: Unit and integration test suites (`test_post_graph.py`, `test_mcp_servers.py`, `test_linkedin_post_flow.py`, `test_slack.py`, `test_agent.py`). |
 | `Procfile` | **Cloud Process Config**: Declares the web process command (`uvicorn main:app --host 0.0.0.0 --port $PORT`). |
 | `requirements.txt` | **Dependencies**: Packages required to run the backend service. |
 

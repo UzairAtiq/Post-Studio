@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 import logging
 from typing import Any
 from fastapi import FastAPI
@@ -5,6 +6,7 @@ from fastapi.staticfiles import StaticFiles
 from config.settings import (
     DATABASE_URL,
     PORT,
+    POST_FLOW_MODE,
 )
 from services.storage import (
     get_valid_linkedin_access_token,
@@ -22,11 +24,61 @@ from utils import (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("main_api")
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Manage startup and shutdown lifecycle for LangGraph runtime and MCP client.
+
+    Purpose:
+        Initializes persistent checkpointer and connects MCP client when in graph mode,
+        registering them on application state and services. On application shutdown,
+        cleanly tears down MCP sessions and flushes checkpointer state via try/finally.
+    """
+    checkpointer = None
+    mcp_client = None
+
+    if POST_FLOW_MODE == "graph":
+        from graphs.post_flow.graph import build_post_flow_graph
+        from graphs.post_flow.setup import create_checkpointer, create_mcp_client
+        from services.post_graph import set_post_graph_runtime
+
+        checkpointer = create_checkpointer()
+        mcp_client = create_mcp_client()
+
+        try:
+            await mcp_client.connect()
+        except Exception as mcp_err:
+            logger.warning(f"Could not connect MCP client on startup: {mcp_err}")
+
+        graph = build_post_flow_graph(checkpointer=checkpointer)
+        app.state.checkpointer = checkpointer
+        app.state.mcp_client = mcp_client
+        app.state.graph = graph
+        set_post_graph_runtime(graph=graph, mcp_client=mcp_client, checkpointer=checkpointer)
+        logger.info("Initialized graph flow runtime on application startup.")
+
+    try:
+        yield
+    finally:
+        if mcp_client:
+            try:
+                await mcp_client.close()
+            except Exception as close_err:
+                logger.warning(f"Error closing MCP client on shutdown: {close_err}")
+        if checkpointer:
+            try:
+                checkpointer.close()
+            except Exception as close_cp:
+                logger.warning(f"Error closing checkpointer on shutdown: {close_cp}")
+        logger.info("Application shutdown complete.")
+
+
 # initialize fastapi app
 app = FastAPI(
     title="LinkedIn Post Automation & Slack Approval API",
     description="Unified API service managing LinkedIn OAuth, automated token refreshes, Slack interactive approvals, and post publishing.",
     version="2.0.0",
+    lifespan=lifespan,
 )
 
 # mount frontend static and built react assets

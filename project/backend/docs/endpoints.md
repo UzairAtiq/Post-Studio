@@ -14,11 +14,11 @@ Overview of all endpoints, MCP tools, and services exposed by the LinkedIn Post 
 | `GET` | `/callback` | [`routers/auth.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/routers/auth.py) | Legacy redirect alias for `/linkedin/callback`. |
 | `GET` | `/linkedin/status` | [`routers/auth.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/routers/auth.py) | Returns authentication status, masked token preview, expiry time, and refresh token availability. |
 | `POST` | `/linkedin/refresh` | [`routers/auth.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/routers/auth.py) | Renews access token using stored refresh token without requiring re-authentication. |
-| `POST` | `/slack/interactions` | [`routers/slack.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/routers/slack.py) | Verifies Slack HMAC signature/timestamp, acknowledges within 3 seconds, and runs decision in background. |
+| `POST` | `/slack/interactions` | [`routers/slack.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/routers/slack.py) | Verifies Slack HMAC signature/timestamp, acknowledges within 3 seconds, and resumes graph or legacy flow in background based on `POST_FLOW_MODE`. |
 | `GET` | `/posts` | [`routers/posts.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/routers/posts.py) | Lists saved posts with optional status filter, or serves the frontend for direct browser visits. |
 | `GET` | `/posts/{post_id}` | [`routers/posts.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/routers/posts.py) | Retrieves details of a single post by ID with sensitive tokens masked. |
 | `DELETE` | `/posts/{post_id}` | [`routers/posts.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/routers/posts.py) | Deletes a stored post record from the database. |
-| `POST` | `/posts/generate` | [`routers/posts.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/routers/posts.py) | Generates a new post using Groq LLM, saves it with pending status, and sends Slack approval buttons. |
+| `POST` | `/posts/generate` | [`routers/posts.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/routers/posts.py) | Generates a new post, saves it with pending status, and sends Slack approval buttons (routes to LangGraph or legacy flow based on `POST_FLOW_MODE`). |
 
 ---
 
@@ -26,11 +26,12 @@ Overview of all endpoints, MCP tools, and services exposed by the LinkedIn Post 
 
 | Tool | File | One-Line Purpose |
 | :--- | :--- | :--- |
-| `generate_and_request_approval` | [`mcp_servers/linkedin_server.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/mcp_servers/linkedin_server.py) | Generates post via Groq, stores record, delivers Slack Block Kit card, and optionally awaits human decision. |
-| `wait_for_approval_decision` | [`mcp_servers/linkedin_server.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/mcp_servers/linkedin_server.py) | Polls storage for human Slack approval/discard decision up to capped timeout and executes action. |
-| `approve_or_discard_post_directly` | [`mcp_servers/linkedin_server.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/mcp_servers/linkedin_server.py) | Programmatically records decision and publishes or discards post without Slack UI. |
-| `get_post_details` | [`mcp_servers/linkedin_server.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/mcp_servers/linkedin_server.py) | Fetches single post record by post ID with sensitive credentials masked. |
-| `list_all_generated_posts` | [`mcp_servers/linkedin_server.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/mcp_servers/linkedin_server.py) | Lists all saved post records with optional status filter and masked tokens. |
+| `generate_post` | [`mcp_servers/linkedin_server.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/mcp_servers/linkedin_server.py) | Generates LinkedIn post content using Groq LLM via `post_service`. |
+| `save_post` | [`mcp_servers/linkedin_server.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/mcp_servers/linkedin_server.py) | Saves drafted post with pending status into storage via `post_service`. |
+| `request_approval` | [`mcp_servers/linkedin_server.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/mcp_servers/linkedin_server.py) | Delivers interactive Slack Block Kit approval card via `post_service`. |
+| `publish_post` | [`mcp_servers/linkedin_server.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/mcp_servers/linkedin_server.py) | Publishes approved post to LinkedIn REST API via `post_service`. |
+| `discard_post` | [`mcp_servers/linkedin_server.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/mcp_servers/linkedin_server.py) | Disposes of rejected post and updates Slack card via `post_service`. |
+| `get_post` | [`mcp_servers/linkedin_server.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/mcp_servers/linkedin_server.py) | Fetches single post record by post ID via `post_service`. |
 | `lookup_customer` | [`mcp_servers/database_server.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/mcp_servers/database_server.py) | Queries database customers table for customer details by ID. |
 | `send_slack_message` | [`mcp_servers/slack_server.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/mcp_servers/slack_server.py) | Dispatches plain text notification to Slack channel via incoming webhook. |
 

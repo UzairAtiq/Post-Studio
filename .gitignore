@@ -40,6 +40,8 @@ data/*.json
 data/*.db
 project/backend/data/*.json
 project/backend/data/*.db
+project/backend/data/*.pkl
+*.pkl
 
 # linkedin ignore
 .linkedin_token

@@ -10,7 +10,10 @@ import urllib.parse
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, Response, status
 
-from config.settings import SLACK_SIGNING_SECRET
+from config.settings import (
+    POST_FLOW_MODE,
+    SLACK_SIGNING_SECRET,
+)
 from services.approval import (
     execute_post_decision,
     record_slack_decision,
@@ -149,29 +152,17 @@ async def handle_slack_interactions(
             detail="Invalid JSON payload format.",
         )
 
-    actions = interaction_data.get("actions", [])
-    if not actions:
-        logger.warning("received Slack interaction without actions")
-        return Response(status_code=status.HTTP_200_OK)
+    if POST_FLOW_MODE == "graph":
+        from services.post_graph import process_graph_slack_interaction
 
-    primary_action = actions[0]
-    action_id = primary_action.get("action_id", "")
-    post_id = primary_action.get("value", "")
-    response_url = interaction_data.get("response_url")
+        return process_graph_slack_interaction(
+            interaction_data=interaction_data,
+            background_tasks=background_tasks,
+        )
 
-    logger.info(f"processing Slack action: '{action_id}' for post_id: '{post_id}'")
+    from legacy.slack_flow import process_legacy_slack_interaction
 
-    if not post_id:
-        return Response(status_code=status.HTTP_200_OK)
-
-    # record decision in storage
-    record_slack_decision(
-        action_id=action_id,
-        post_id=post_id,
-        response_url=response_url,
+    return process_legacy_slack_interaction(
+        interaction_data=interaction_data,
+        background_tasks=background_tasks,
     )
-
-    # run publish and message update in background to satisfy Slack 3-second limit
-    background_tasks.add_task(execute_post_decision, post_id=post_id)
-
-    return Response(status_code=status.HTTP_200_OK)
