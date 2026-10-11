@@ -3,13 +3,13 @@
 import logging
 from typing import Any
 
-from config.constants import PostStatus
+from config.constants import MAX_APPROVAL_TIMEOUT_SECONDS, PostStatus
 from config.settings import get_linkedin_access_token
 from mcp.server.fastmcp import FastMCP
 from services.approval import (
     execute_post_decision,
     record_slack_decision,
-    wait_for_decision,
+    wait_for_decision as wait_for_decision_service,
 )
 from services.groq_service import generate_linkedin_post_content
 from services.linkedin_service import fetch_linkedin_person_urn
@@ -106,7 +106,8 @@ def generate_and_request_approval(
             "message": "Post generated and sent to Slack for user approval.",
         }
 
-    return wait_for_decision(post_id=internal_post_id, timeout_seconds=timeout_seconds)
+    capped_timeout = min(max(1, timeout_seconds), MAX_APPROVAL_TIMEOUT_SECONDS)
+    return wait_for_decision_service(post_id=internal_post_id, timeout_seconds=capped_timeout)
 
 
 @mcp.tool()
@@ -118,7 +119,7 @@ def wait_for_approval_decision(post_id: str, timeout_seconds: int = 60) -> dict[
 
     Steps:
         1. Validate post_id is provided and non-empty.
-        2. Validate timeout_seconds is a positive integer.
+        2. Cap timeout_seconds to MAX_APPROVAL_TIMEOUT_SECONDS config constant.
         3. Delegate to approval.wait_for_decision and return outcome.
 
     Returns:
@@ -130,7 +131,8 @@ def wait_for_approval_decision(post_id: str, timeout_seconds: int = 60) -> dict[
     if not post_id or not post_id.strip():
         return {"success": False, "error": "post_id must be provided."}
 
-    return wait_for_decision(post_id=post_id.strip(), timeout_seconds=max(1, timeout_seconds))
+    capped_timeout = min(max(1, timeout_seconds), MAX_APPROVAL_TIMEOUT_SECONDS)
+    return wait_for_decision_service(post_id=post_id.strip(), timeout_seconds=capped_timeout)
 
 
 @mcp.tool()

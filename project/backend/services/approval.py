@@ -4,7 +4,7 @@ import logging
 import time
 from typing import Any
 
-from config.constants import PostStatus
+from config.constants import MAX_APPROVAL_TIMEOUT_SECONDS, PostStatus
 from config.settings import get_linkedin_access_token, get_linkedin_person_urn
 from services.linkedin_service import publish_post_to_linkedin
 from services.slack_service import update_slack_message
@@ -200,14 +200,15 @@ def wait_for_decision(post_id: str, timeout_seconds: int = 60) -> dict[str, Any]
         decisions and triggers execution when detected or times out.
 
     Steps:
-        1. Record start time and initialize 2-second polling interval.
-        2. Enter polling loop while elapsed duration is under timeout_seconds.
-        3. Query storage for current post record state.
-        4. If post is missing, return error immediately.
-        5. If status is approved or discarded, call execute_post_decision and return.
-        6. If status is already finalized (published, rejected, publish_failed), return current state.
-        7. Sleep for 2.0 seconds between poll cycles.
-        8. If timeout expires without interaction, return timed_out status dictionary.
+        1. Cap timeout_seconds between 1 and MAX_APPROVAL_TIMEOUT_SECONDS constant.
+        2. Record start time and initialize 2-second polling interval.
+        3. Enter polling loop while elapsed duration is under effective timeout.
+        4. Query storage for current post record state.
+        5. If post is missing, return error immediately.
+        6. If status is approved or discarded, call execute_post_decision and return.
+        7. If status is already finalized (published, discarded, publish_failed), return current state.
+        8. Sleep for 2.0 seconds between poll cycles.
+        9. If timeout expires without interaction, return timed_out status dictionary.
 
     Returns:
         dict[str, Any]: Dictionary containing final execution outcome, status, or timeout report.
@@ -215,10 +216,11 @@ def wait_for_decision(post_id: str, timeout_seconds: int = 60) -> dict[str, Any]
     Raises:
         None.
     """
+    effective_timeout = min(max(1, timeout_seconds), MAX_APPROVAL_TIMEOUT_SECONDS)
     start_time = time.time()
     poll_interval = 2.0
 
-    while time.time() - start_time < timeout_seconds:
+    while time.time() - start_time < effective_timeout:
         record = get_post_by_id(post_id)
         if not record:
             return {"success": False, "error": f"Post '{post_id}' not found."}
