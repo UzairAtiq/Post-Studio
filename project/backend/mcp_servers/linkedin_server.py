@@ -3,7 +3,7 @@
 import logging
 from typing import Any
 
-from legacy.polling import wait_for_decision
+from legacy.polling import wait_for_decision as poll_for_decision
 from mcp.server.fastmcp import FastMCP
 from services.post_service import (
     discard_post as discard_post_service,
@@ -167,9 +167,10 @@ def list_all_generated_posts(status_filter: str = "") -> dict[str, Any]:
     """List all saved LinkedIn posts, optionally filtered by status."""
     all_records = list_posts()
     if status_filter:
+        filter_val = status_filter.strip().lower()
         filtered = [
             post for post in all_records
-            if post.get("status", "").lower() == status_filter.strip().lower()
+            if (post.get("status") or "").lower() == filter_val
         ]
     else:
         filtered = all_records
@@ -213,20 +214,21 @@ def generate_and_request_approval(
             "message": "Post generated and sent to Slack for user approval.",
         }
 
-    return wait_for_decision(post_id=internal_post_id, timeout_seconds=timeout_seconds)
+    return poll_for_decision(post_id=internal_post_id, timeout_seconds=timeout_seconds)
 
 
 @mcp.tool()
 def wait_for_approval_decision(post_id: str, timeout_seconds: int = 60) -> dict[str, Any]:
     """Poll storage until human reviewer reaches an approval decision."""
-    return wait_for_decision(post_id=post_id.strip(), timeout_seconds=timeout_seconds)
+    return poll_for_decision(post_id=post_id.strip(), timeout_seconds=timeout_seconds)
 
 
 @mcp.tool()
 def approve_or_discard_post_directly(post_id: str, action: str = "approve") -> dict[str, Any]:
     """Directly execute approval or discard decision without Slack interaction."""
     clean_id = post_id.strip()
-    if action.lower() in ("approve", "yes"):
+    clean_action = action.strip().lower()
+    if clean_action in ("approve", "yes", "approved", "approve_linkedin_post"):
         return publish_post_service(post_id=clean_id)
     return discard_post_service(post_id=clean_id)
 
