@@ -38,7 +38,7 @@ Overview of all endpoints, MCP tools, and services exposed by the LinkedIn Post 
 
 ## 3. Service Table
 
-> For detailed function listings, dependency rules, and coding standards, see the [Services Layer Guide](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/services/README.md).
+> For detailed function listings, dependency rules, and coding standards, see the [Services Layer Guide](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/docs/services.md).
 
 | File | Responsibility | Callers | Error Paradigm |
 | :--- | :--- | :--- | :--- |

@@ -118,7 +118,7 @@ project/
   - All storage backend fallback logic (PostgreSQL -> SQLite -> `posts.json`) lives strictly in `storage.py`. No other file may choose a storage backend.
   - Decision state transitions and polling live in `approval.py`.
   - Maintain established error styles: `groq_service` raises exceptions (`ValueError`, `RuntimeError`), while `linkedin_service` returns structured status dictionaries (`{'success': False, 'error': ...}`).
-- Detailed reference: see the [Services Layer Guide](project/backend/services/README.md).
+- Detailed reference: see the [Services Layer Guide](project/backend/docs/services.md).
 
 ### 3. MCP Servers Layer (`project/backend/mcp_servers/`)
 - **What it does:** Exposes FastMCP tools over stdio for LLM agents to draft posts, query customer databases, send Slack alerts, and monitor approval decisions.
@@ -131,7 +131,7 @@ For complete route definitions, tool catalogs, service responsibilities, and ste
 ## Documentation
 
 * [API Endpoints & Architecture Overview](project/backend/docs/endpoints.md) — Complete route table, MCP tools, services matrix, and execution flows.
-* [Shared Services Layer Guide](project/backend/services/README.md) — Function reference, dependency hierarchy, error paradigms, and addition rules.
+* [Shared Services Layer Guide](project/backend/docs/services.md) — Function reference, dependency hierarchy, error paradigms, and addition rules.
 * [Development & Testing](docs/development.md) — Running the LangGraph agent CLI, unit tests, and evaluations.
 * [LinkedIn App & OAuth Setup](docs/linkedin_setup.md) — Developer app creation, permissions, and 60-day token lifecycle.
 * [Slack App & Interactivity Setup](docs/slack_setup.md) — Webhooks, Block Kit approval cards, and interaction callbacks.
