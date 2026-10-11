@@ -148,6 +148,8 @@ For complete route definitions, tool catalogs, service responsibilities, and ste
 ## Documentation
 
 * [API Endpoints & Architecture Overview](project/backend/docs/endpoints.md) — Complete route table, MCP tools, services matrix, and execution flows.
+* [API Routers Layer Guide](project/backend/docs/routers.md) — Authentication, post CRUD endpoints, Slack webhook verification, and SPA client-side routing.
+* [Model Context Protocol (MCP) Servers Guide](project/backend/docs/mcp_servers.md) — FastMCP tool definitions, stdio transport, and composite approval workflows.
 * [Shared Services Layer Guide](project/backend/docs/services.md) — Function reference, dependency hierarchy, error paradigms, and addition rules.
 * [Development & Testing](docs/development.md) — Running the LangGraph agent CLI, unit tests, and evaluations.
 * [LinkedIn App & OAuth Setup](docs/linkedin_setup.md) — Developer app creation, permissions, and 60-day token lifecycle.

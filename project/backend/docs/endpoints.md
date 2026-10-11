@@ -4,6 +4,8 @@ Overview of all endpoints, MCP tools, and services exposed by the LinkedIn Post 
 
 ## 1. Route Table
 
+> For endpoint parameters, security verification, and handler mechanics, see the [API Routers Layer Guide](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/docs/routers.md).
+
 | Method | Path | File | One-Line Purpose |
 | :--- | :--- | :--- | :--- |
 | `GET` | `/health` | [`main.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/main.py) | Returns service health status, active execution flow mode (`graph` or `legacy`), active database backend, and LinkedIn authentication state. |
@@ -23,6 +25,8 @@ Overview of all endpoints, MCP tools, and services exposed by the LinkedIn Post 
 ---
 
 ## 2. MCP Tool Table
+
+> For protocol architecture, FastMCP definitions, and composite tools, see the [MCP Servers Layer Guide](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/docs/mcp_servers.md).
 
 | Tool | File | One-Line Purpose |
 | :--- | :--- | :--- |
