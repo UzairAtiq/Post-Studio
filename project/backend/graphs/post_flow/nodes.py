@@ -184,6 +184,7 @@ async def request_approval_node(
             {
                 "post_id": post_id,
                 "message": "Waiting for Slack human approval",
+                "slack_delivery": res.get("slack_delivery"),
             }
         )
 
