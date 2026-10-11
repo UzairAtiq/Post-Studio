@@ -10,7 +10,10 @@ import urllib.parse
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, Response, status
 
-from config.settings import SLACK_SIGNING_SECRET
+from config.settings import (
+    POST_FLOW_MODE,
+    SLACK_SIGNING_SECRET,
+)
 from services.approval import (
     execute_post_decision,
     record_slack_decision,
@@ -148,8 +151,6 @@ async def handle_slack_interactions(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid JSON payload format.",
         )
-
-    from config.settings import POST_FLOW_MODE
 
     if POST_FLOW_MODE == "graph":
         from services.post_graph import process_graph_slack_interaction
