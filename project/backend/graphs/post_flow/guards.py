@@ -1,15 +1,16 @@
 """Guard conditions and terminal validation checks for post flow completion."""
 
 import logging
-from typing import Any
+from typing import Any, Mapping
 
 from config.constants import PostStatus
+from graphs.post_flow.state import PostFlowState
 from services.storage import get_post_by_id
 
 logger = logging.getLogger("post_flow_guards")
 
 
-def is_flow_complete(state: dict[str, Any]) -> bool:
+def is_flow_complete(state: PostFlowState | Mapping[str, Any]) -> bool:
     """Validate strict completion criteria for post generation and review workflow.
 
     Purpose:
@@ -86,7 +87,7 @@ def is_flow_complete(state: dict[str, Any]) -> bool:
     return False
 
 
-def can_publish_post(state: dict[str, Any]) -> bool:
+def can_publish_post(state: PostFlowState | Mapping[str, Any]) -> bool:
     """Check whether a post satisfies pre-conditions for LinkedIn publication.
 
     Purpose:

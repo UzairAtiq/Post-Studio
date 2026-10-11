@@ -1,7 +1,6 @@
 """State schema definition for post flow graph orchestration."""
 
-from typing import Any
-from typing_extensions import TypedDict
+from typing import Any, TypedDict
 
 
 class PostFlowState(TypedDict, total=False):
