@@ -162,36 +162,7 @@ def generate_post_endpoint(
     Raises:
         HTTPException: 401 Unauthorized if LinkedIn is not authenticated.
     """
-    token = get_valid_linkedin_access_token()
-    if not token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="LinkedIn is not authenticated. Please visit /linkedin/login first.",
-        )
+    from legacy.post_flow import run_legacy_post_flow
 
-    person_urn = get_linkedin_person_urn() or fetch_linkedin_person_urn(token)
-    post_content = generate_linkedin_post_content(topic=topic)
-    post_id = generate_next_post_id()
+    return run_legacy_post_flow(topic=topic)
 
-    save_post_record(
-        post_id=post_id,
-        content=post_content,
-        profile_id=person_urn,
-        access_token=token,
-        status=PostStatus.PENDING,
-    )
-
-    slack_res = send_approval_request(
-        post_id=post_id,
-        content=post_content,
-    )
-
-    return {
-        "success": True,
-        "post_id": post_id,
-        "person_urn": person_urn,
-        "status": "pending_approval",
-        "generated_content": post_content,
-        "slack_delivery": slack_res,
-        "message": "Post generated and sent to Slack for user approval.",
-    }
