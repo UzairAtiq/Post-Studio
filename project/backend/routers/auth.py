@@ -1,3 +1,5 @@
+"""LinkedIn OAuth 2.0 authentication and token management router."""
+
 import json
 import logging
 import urllib.parse
@@ -22,9 +24,29 @@ logger = logging.getLogger("auth_router")
 
 router = APIRouter(tags=["Authentication"])
 
+
 # linkedin oauth authorization redirect
 @router.get("/linkedin/login")
 def linkedin_login(request: Request) -> RedirectResponse:
+    """Initiate the LinkedIn OAuth 2.0 authorization code flow.
+
+    Purpose:
+        Builds the LinkedIn OAuth authorization URL with state validation and
+        redirects the user's browser to authenticate with LinkedIn.
+
+    Steps:
+        1. Verify that LINKEDIN_CLIENT_ID is configured in the environment.
+        2. Resolve the effective redirect URI based on proxy headers or explicit config.
+        3. Generate a cryptographically secure random UUID for CSRF state validation.
+        4. Assemble query parameters including requested scopes (openid, profile, w_member_social, email).
+        5. Redirect the user to LinkedIn's authorization endpoint.
+
+    Returns:
+        RedirectResponse: 302 redirect to the LinkedIn authorization URL.
+
+    Raises:
+        HTTPException: 500 Internal Server Error if LINKEDIN_CLIENT_ID is not configured.
+    """
     if not LINKEDIN_CLIENT_ID:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -43,6 +65,7 @@ def linkedin_login(request: Request) -> RedirectResponse:
     auth_url = f"https://www.linkedin.com/oauth/v2/authorization?{urllib.parse.urlencode(params)}"
     return RedirectResponse(url=auth_url)
 
+
 # linkedin oauth callback endpoint (supports both /linkedin/callback and legacy /callback)
 @router.get("/linkedin/callback", response_class=HTMLResponse)
 @router.get("/callback", response_class=HTMLResponse)
@@ -53,6 +76,33 @@ async def linkedin_callback(
     error: str | None = Query(default=None),
     error_description: str | None = Query(default=None),
 ) -> Response:
+    """Handle OAuth redirect callback from LinkedIn after user consent.
+
+    Purpose:
+        Exchanges the authorization code for access and refresh tokens, fetches
+        user profile information, persists credentials to storage, and renders
+        the result page.
+
+    Steps:
+        1. Check for incoming error parameters from LinkedIn and render an error response if present.
+        2. Validate that an authorization code was provided.
+        3. Verify that LinkedIn client credentials are configured.
+        4. Exchange authorization code with LinkedIn's accessToken endpoint.
+        5. If token exchange fails:
+           a. If valid token already exists (e.g. browser reload / duplicate request), redirect to dashboard.
+           b. Otherwise, render error.html or return HTTP 400.
+        6. Fetch user profile data via OpenID userinfo endpoint (falling back to URN resolver).
+        7. Persist access token, refresh token, expiration, and user profile to storage.
+        8. Render callback.html template or success HTML response.
+
+    Returns:
+        Response: HTMLResponse with authentication outcome or RedirectResponse to dashboard.
+
+    Raises:
+        HTTPException: 400 Bad Request if authorization code is missing or exchange fails.
+        HTTPException: 500 Internal Server Error if LinkedIn credentials are not configured.
+        HTTPException: 502 Bad Gateway if the OAuth server communication fails.
+    """
     error_template = FRONTEND_DIR / "error.html"
 
     if error:
@@ -177,9 +227,29 @@ async def linkedin_callback(
 
     return HTMLResponse(content=f"<h2>LinkedIn Connected! User: {user_name}</h2><a href='/'>Dashboard</a>")
 
+
 # linkedin token metadata endpoint
 @router.get("/linkedin/status")
 def linkedin_status(request: Request) -> dict[str, Any]:
+    """Retrieve current LinkedIn authentication state and token metadata.
+
+    Purpose:
+        Provides the client with authentication status, masked token preview,
+        person URN, expiration timestamp, and refresh token availability.
+
+    Steps:
+        1. Fetch stored token record from persistent database.
+        2. Resolve effective callback URI for reference.
+        3. If no record exists, return an unauthenticated status dictionary.
+        4. Mask access token (showing first 8 and last 4 characters).
+        5. Return dictionary of token properties and profile identifiers.
+
+    Returns:
+        dict[str, Any]: Authentication status and masked token metadata.
+
+    Raises:
+        None.
+    """
     record = get_linkedin_token_record()
     effective_uri = get_effective_redirect_uri(request)
     if not record:
@@ -203,9 +273,28 @@ def linkedin_status(request: Request) -> dict[str, Any]:
         "updated_at": str(record.get("updated_at")),
     }
 
+
 # manual or programmatic token refresh endpoint
 @router.post("/linkedin/refresh")
 def refresh_token_endpoint() -> dict[str, Any]:
+    """Trigger programmatic or manual renewal of LinkedIn access token.
+
+    Purpose:
+        Uses the stored OAuth refresh token to request a new access token from
+        LinkedIn without requiring interactive user login.
+
+    Steps:
+        1. Invoke refresh_linkedin_access_token() against stored credentials.
+        2. Check result for success.
+        3. If failed, raise HTTP 400 with failure explanation.
+        4. Return success status dictionary.
+
+    Returns:
+        dict[str, Any]: Dictionary confirming successful token refresh.
+
+    Raises:
+        HTTPException: 400 Bad Request if token refresh fails.
+    """
     result = refresh_linkedin_access_token()
     if not result.get("success"):
         raise HTTPException(

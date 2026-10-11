@@ -1,3 +1,5 @@
+"""LinkedIn post generation, management, and CRUD API router."""
+
 from typing import Any
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from config.constants import PostStatus
@@ -17,9 +19,30 @@ from utils import get_index_html_response
 
 router = APIRouter(tags=["Posts"])
 
+
 # list all saved posts (or return React app if visited directly by browser)
 @router.get("/posts")
 def get_all_posts(request: Request, status_filter: str | None = None) -> Any:
+    """List stored posts with optional filtering or serve frontend for direct browser navigation.
+
+    Purpose:
+        Returns all stored LinkedIn posts as JSON (with token masking and optional
+        status filtering), or serves the frontend SPA if accessed directly in a browser.
+
+    Steps:
+        1. Check the request Accept header for text/html without X-Requested-With.
+        2. If accessed by a browser, return index.html for client-side routing.
+        3. Query storage for all saved post records.
+        4. If status_filter is supplied, filter records by status case-insensitively.
+        5. Mask sensitive access tokens in post records.
+        6. Return JSON payload containing total count and the posts list.
+
+    Returns:
+        Any: HTMLResponse if visited by a web browser, or dict containing total_count and posts.
+
+    Raises:
+        None.
+    """
     # If a browser requests the page directly (e.g. reload on /posts), return the React app
     accept_header = request.headers.get("accept", "")
     if "text/html" in accept_header and not request.headers.get("x-requested-with"):
@@ -42,9 +65,28 @@ def get_all_posts(request: Request, status_filter: str | None = None) -> Any:
 
     return {"total_count": len(sanitized_records), "posts": sanitized_records}
 
+
 # retrieve single post by id
 @router.get("/posts/{post_id}")
 def get_single_post(post_id: str) -> dict[str, Any]:
+    """Retrieve details of a single post by its unique ID.
+
+    Purpose:
+        Fetches an individual post record from persistent storage and sanitizes
+        its access token before returning.
+
+    Steps:
+        1. Query storage for a post record matching post_id.
+        2. If no record is found, raise HTTP 404 Not Found.
+        3. Mask access token characters if present in record.
+        4. Return the sanitized post record.
+
+    Returns:
+        dict[str, Any]: Post data dictionary including content, status, and metadata.
+
+    Raises:
+        HTTPException: 404 Not Found if post_id does not exist.
+    """
     record = get_post_by_id(post_id)
     if not record:
         raise HTTPException(
@@ -57,9 +99,27 @@ def get_single_post(post_id: str) -> dict[str, Any]:
         safe_copy["access_token"] = safe_copy["access_token"][:10] + "..."
     return safe_copy
 
+
 # delete single post by id
 @router.delete("/posts/{post_id}")
 def delete_post_endpoint(post_id: str) -> dict[str, Any]:
+    """Delete a stored post record by its unique ID.
+
+    Purpose:
+        Removes a post record from persistent storage after verifying its existence.
+
+    Steps:
+        1. Look up the post in storage to confirm it exists.
+        2. If not found, raise HTTP 404 Not Found.
+        3. Delete the post record from storage.
+        4. Return confirmation payload indicating success.
+
+    Returns:
+        dict[str, Any]: Dictionary with success boolean, post_id, and confirmation message.
+
+    Raises:
+        HTTPException: 404 Not Found if post_id does not exist.
+    """
     record = get_post_by_id(post_id)
     if not record:
         raise HTTPException(
@@ -74,11 +134,34 @@ def delete_post_endpoint(post_id: str) -> dict[str, Any]:
         "message": f"Post '{post_id}' deleted successfully.",
     }
 
+
 # trigger post generation and slack approval request for testing
 @router.post("/posts/generate")
 def generate_post_endpoint(
     topic: str = Query(default="AI advancements and modern software engineering"),
 ) -> dict[str, Any]:
+    """Generate a LinkedIn post using AI and send an interactive Slack approval request.
+
+    Purpose:
+        Automates the creation of a LinkedIn post on a given topic using Groq LLM,
+        stores it with pending status, and dispatches an interactive approval request to Slack.
+
+    Steps:
+        1. Validate that a valid, active LinkedIn access token exists in storage.
+        2. If token is missing or expired, raise HTTP 401 Unauthorized.
+        3. Resolve the user's LinkedIn person URN.
+        4. Generate post content using Groq LLM based on the topic parameter.
+        5. Generate a unique post identifier.
+        6. Persist pending post record into storage with profile ID and token.
+        7. Send interactive Block Kit approval message to configured Slack channel.
+        8. Return confirmation dictionary with post ID, content, and delivery result.
+
+    Returns:
+        dict[str, Any]: Summary dictionary with post_id, status, generated content, and Slack delivery info.
+
+    Raises:
+        HTTPException: 401 Unauthorized if LinkedIn is not authenticated.
+    """
     token = get_valid_linkedin_access_token()
     if not token:
         raise HTTPException(

@@ -1,3 +1,5 @@
+"""Slack interactive webhooks and action dispatch router."""
+
 import json
 import logging
 from typing import Annotated
@@ -11,9 +13,30 @@ logger = logging.getLogger("slack_router")
 
 router = APIRouter(tags=["Slack"])
 
+
 # slack interactive webhook endpoint
 @router.post("/slack/interactions")
 async def handle_slack_interactions(payload: Annotated[str, Form()]) -> Response:
+    """Handle interactive button clicks from Slack approval messages.
+
+    Purpose:
+        Processes Slack Block Kit interactive actions (e.g., approving or
+        discarding a pending LinkedIn post) and executes the corresponding workflow.
+
+    Steps:
+        1. Parse the URL-encoded JSON payload received from Slack.
+        2. Validate the action list and extract action ID, post ID, and response URL.
+        3. If post ID is absent, acknowledge with HTTP 200 immediately.
+        4. Record the Slack decision in database storage.
+        5. Execute the post decision (publish to LinkedIn if approved, or discard).
+        6. Return an HTTP 200 acknowledgment to Slack.
+
+    Returns:
+        Response: HTTP 200 OK acknowledgment for Slack.
+
+    Raises:
+        HTTPException: 400 Bad Request if the payload cannot be parsed as JSON.
+    """
     try:
         interaction_data = json.loads(payload)
     except (json.JSONDecodeError, TypeError) as parse_err:

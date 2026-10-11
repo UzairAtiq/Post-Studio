@@ -36,8 +36,25 @@ if FRONTEND_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
 
 # health check endpoint for cloud hosts
-@app.get("/health")
+@app.get("/health", tags=["Health"])
 def health_check() -> dict[str, Any]:
+    """Provide service health status and dependency checks.
+
+    Purpose:
+        Reports runtime health for cloud platform monitoring (Render, Railway),
+        including database backend type and LinkedIn authentication status.
+
+    Steps:
+        1. Check whether a valid, non-expired LinkedIn access token is available.
+        2. Inspect configured database provider (PostgreSQL if DATABASE_URL else SQLite).
+        3. Assemble and return health status dictionary.
+
+    Returns:
+        dict[str, Any]: Health status dictionary with service name, database type, and auth state.
+
+    Raises:
+        None.
+    """
     token_valid = bool(get_valid_linkedin_access_token())
     return {
         "status": "healthy",
