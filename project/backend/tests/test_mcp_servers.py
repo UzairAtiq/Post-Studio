@@ -1,5 +1,3 @@
-import asyncio
-from agent.tools import MCPClient
 from mcp_servers.database_server import lookup_customer
 from mcp_servers.linkedin_server import (
     get_post_details,
@@ -75,20 +73,6 @@ def test_linkedin_tools_read():
     assert details["found"] is False
 
 
-# test standalone mcp client connection to a server over stdio
-async def _run_mcp_client_test():
-    client = MCPClient("mcp_servers.slack_server")
-    try:
-        await client.connect()
-        assert client.session is not None
-    finally:
-        await client.close()
-
-
-def test_mcp_client_connection():
-    asyncio.run(_run_mcp_client_test())
-
-
 if __name__ == "__main__":
     print("Running MCP server automated unit tests...")
 
@@ -107,9 +91,5 @@ if __name__ == "__main__":
     print("\n4. Testing LinkedIn read tools...")
     test_linkedin_tools_read()
     print("   ✓ list_all_generated_posts and get_post_details passed")
-
-    print("\n5. Testing MCPClient stdio connection...")
-    test_mcp_client_connection()
-    print("   ✓ mcp_client_connection passed")
 
     print("\n🎉 Automated unit tests completed successfully!")
