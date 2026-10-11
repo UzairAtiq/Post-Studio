@@ -82,12 +82,13 @@ async def generate_node(
         dict[str, Any]: State update with content or failure details.
     """
     topic = state.get("topic") or "AI advancements and modern software engineering"
+    post_id = state.get("post_id", "")
     try:
         res = await _execute_mcp_tool("generate_post", {"topic": topic}, config)
         if not res.get("success"):
             err_msg = res.get("error", "Failed generating post content")
             logger.error(f"generate node failed: {err_msg}")
-            notify_failure(post_id="", node="generate", reason=err_msg)
+            notify_failure(post_id=post_id, node="generate", reason=err_msg)
             return {"status": "failed", "error": err_msg}
 
         return {
@@ -97,7 +98,7 @@ async def generate_node(
     except Exception as err:
         err_msg = f"Unexpected exception in generate node: {err}"
         logger.error(err_msg)
-        notify_failure(post_id="", node="generate", reason=str(err))
+        notify_failure(post_id=post_id, node="generate", reason=str(err))
         return {"status": "failed", "error": str(err)}
 
 
@@ -119,6 +120,9 @@ async def save_node(
     Returns:
         dict[str, Any]: State update with post_id and pending status.
     """
+    if state.get("status") == "failed":
+        return {"status": "failed", "error": state.get("error", "Generation step failed")}
+
     content = state.get("content", "")
     existing_post_id = state.get("post_id", "")
     try:
@@ -156,7 +160,7 @@ async def request_approval_node(
         a human reviewer provides an approved or discarded decision.
 
     Steps:
-        1. Call request_approval MCP tool.
+        1. Call request_approval MCP tool if not already dispatched.
         2. If delivery failed, notify failure and record failed status.
         3. Call interrupt to pause workflow for human input.
         4. Upon resume, normalize decision string and return.
@@ -164,32 +168,46 @@ async def request_approval_node(
     Returns:
         dict[str, Any]: State update with human decision and delivery metadata.
     """
+    if state.get("status") == "failed":
+        return {"status": "failed", "error": state.get("error", "Previous step failed")}
+
     post_id = state.get("post_id", "")
     content = state.get("content", "")
 
     try:
-        res = await _execute_mcp_tool(
-            "request_approval",
-            {"post_id": post_id, "content": content},
-            config,
-        )
-        if not res.get("success"):
-            err_msg = res.get("error", "Failed dispatching Slack approval request")
-            logger.error(f"request_approval node failed for post_id={post_id}: {err_msg}")
-            notify_failure(post_id=post_id, node="request_approval", reason=err_msg)
-            return {"status": "failed", "error": err_msg}
+        # Check whether Slack approval has already been delivered to avoid duplicate dispatch on resume
+        slack_delivery = state.get("slack_delivery")
+        record = get_post_by_id(post_id) if post_id else None
+        if not slack_delivery and record:
+            slack_delivery = record.get("slack_delivery")
+
+        if not slack_delivery and not (record and record.get("decision_action")):
+            res = await _execute_mcp_tool(
+                "request_approval",
+                {"post_id": post_id, "content": content},
+                config,
+            )
+            if not res.get("success"):
+                err_msg = res.get("error", "Failed dispatching Slack approval request")
+                logger.error(f"request_approval node failed for post_id={post_id}: {err_msg}")
+                notify_failure(post_id=post_id, node="request_approval", reason=err_msg)
+                return {"status": "failed", "error": err_msg}
+            slack_delivery = res.get("slack_delivery")
 
         # Interrupt execution awaiting human Slack decision
         user_decision = interrupt(
             {
                 "post_id": post_id,
                 "message": "Waiting for Slack human approval",
-                "slack_delivery": res.get("slack_delivery"),
+                "slack_delivery": slack_delivery,
             }
         )
 
-        # Normalize decision string
-        norm_decision = str(user_decision or state.get("decision", "")).strip().lower()
+        # Normalize decision string (handle string or dictionary payload from resume)
+        raw_decision = user_decision
+        if isinstance(raw_decision, dict):
+            raw_decision = raw_decision.get("action_id") or raw_decision.get("decision") or raw_decision.get("action")
+        norm_decision = str(raw_decision or state.get("decision", "")).strip().lower()
         if norm_decision in ("approve_linkedin_post", "approve", "yes", "approved"):
             clean_decision = "approved"
         else:
@@ -198,7 +216,7 @@ async def request_approval_node(
         return {
             "decision": clean_decision,
             "status": "decision_received",
-            "slack_delivery": res.get("slack_delivery"),
+            "slack_delivery": slack_delivery,
         }
     except GraphInterrupt:
         raise
@@ -227,6 +245,9 @@ async def publish_node(
     Returns:
         dict[str, Any]: State update with publication details.
     """
+    if state.get("status") == "failed":
+        return {"status": "publish_failed", "error": state.get("error", "Previous step failed")}
+
     post_id = state.get("post_id", "")
 
     # Check eligibility to prevent unauthorized or double posting
@@ -276,6 +297,9 @@ async def discard_node(
     Returns:
         dict[str, Any]: State update with discarded status.
     """
+    if state.get("status") == "failed":
+        return {"status": "failed", "error": state.get("error", "Previous step failed")}
+
     post_id = state.get("post_id", "")
     try:
         res = await _execute_mcp_tool("discard_post", {"post_id": post_id}, config)
