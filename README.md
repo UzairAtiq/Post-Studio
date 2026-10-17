@@ -45,9 +45,8 @@ cp .env.example .env
 
 Fill in the required keys in `.env`:
 * `GROQ_API_KEY`
-* `SLACK_WEBHOOK_URL`
-* `LINKEDIN_CLIENT_ID`
-* `LINKEDIN_CLIENT_SECRET`
+* `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`, `SLACK_WORKSPACE_INVITE_URL` — (for multi-user Slack DM approvals; see [Slack Setup Guide](file:///Users/uzair/Developer/mcp-langraph-agent/docs/slack_setup.md))
+* `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET` — (OAuth 2.0 app credentials; see [LinkedIn Setup Guide](file:///Users/uzair/Developer/mcp-langraph-agent/docs/linkedin_setup.md))
 * `POST_FLOW_MODE` — `graph` (default LangGraph post flow with MCP tools and persistence) or `legacy` (procedural flow)
 
 ```bash

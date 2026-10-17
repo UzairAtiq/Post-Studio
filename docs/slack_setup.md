@@ -1,98 +1,118 @@
-# Slack App, Webhook, and Interactive Cards Setup
+# Slack Direct Message (DM) Approval Setup Guide
 
-This guide details how to create and configure a Slack Application for receiving Block Kit approval cards and processing interactive human-in-the-loop decisions (*Approve & Post* vs. *Discard*).
-
----
-
-## 1. Create a Slack App
-
-1. Visit [api.slack.com/apps](https://api.slack.com/apps) and click **Create New App**.
-2. Select **From scratch**.
-3. Enter an App Name (e.g. `LinkedIn Agent Approvals`) and pick your target development Slack Workspace.
-4. Click **Create App**.
+This guide details the single-bot multi-user Slack approval architecture for the LinkedIn Post Automation platform.
 
 ---
 
-## 2. Configure Incoming Webhooks
+## Architecture Overview: Single Bot, Shared Workspace
 
-The agent dispatches interactive Block Kit cards to your designated Slack channel via an Incoming Webhook:
+Unlike traditional webhook setups where each user must create their own Slack app and configure webhooks, this system uses a **single shared Slack Bot**:
 
-1. In the app settings sidebar, click **Incoming Webhooks**.
-2. Toggle **Activate Incoming Webhooks** to **On**.
-3. Click the **Add New Webhook to Workspace** button at the bottom of the page.
-4. Select the channel where post approvals should be sent (e.g. `#linkedin-approvals` or `#general`) and click **Allow**.
-5. Copy the generated **Webhook URL**:
-   * Format: `https://hooks.slack.com/services/T000.../B000.../XXXX...`
-   * Set this value as `SLACK_WEBHOOK_URL` in your `.env` file or Render environment variables.
+1. **One Slack App**: Installed once in the workspace administrator's Slack workspace.
+2. **Private Direct Messages**: The bot sends interactive approval cards directly to each user's private Slack DM.
+3. **No Setup for Users**: End users do not configure Slack apps or webhooks. They simply join the administrator's Slack workspace using their LinkedIn account email.
+4. **Zero-Friction Email Matching**: When a user logs in via LinkedIn OAuth, the backend automatically calls `users.lookupByEmail` on Slack to find their Slack Member ID and maps it to their LinkedIn `sub`.
+5. **Dashboard Fallback**: If a user hasn't joined Slack yet, post generation succeeds, and the user can approve/reject posts directly from the web dashboard.
 
 ---
 
-## 3. Enable Slack Interactivity
+## 1. Environment Variables
 
-When a user clicks **✅ Yes (Approve & Post)** or **❌ No (Discard)** in Slack, Slack sends an HTTP POST request to your backend receiver.
+Configure the following variables in your `.env` file or cloud deployment settings:
 
-1. In the app settings sidebar, select **Interactivity & Shortcuts**.
-2. Switch the **Interactivity** toggle to **On**.
-3. Set the **Request URL**:
-
-### A. Local Development (via Ngrok)
-Slack requires a publicly accessible HTTPS endpoint:
-```bash
-# Terminal 1: Run local backend
-uvicorn main:app --reload --port 8000
-
-# Terminal 2: Expose port 8000
-ngrok http 8000
-```
-Set the Slack **Request URL** to:
-```
-https://<your-ngrok-subdomain>.ngrok-free.app/slack/interactions
-```
-
-### B. Cloud Deployment (Render)
-For production deployments on Render, set the **Request URL** directly to:
-```
-https://<your-render-service-name>.onrender.com/slack/interactions
-```
-
-4. Click **Save Changes** in the bottom right corner.
+| Variable | Description | Example |
+| :--- | :--- | :--- |
+| `SLACK_BOT_TOKEN` | Bot User OAuth Token with `xoxb-` prefix | `xoxb-12012884372583-...` |
+| `SLACK_SIGNING_SECRET` | Slack Signing Secret for verifying incoming interactions | `746f03588bce8c09...` |
+| `SLACK_WORKSPACE_INVITE_URL` | Shareable workspace invite link for users | `https://join.slack.com/t/...` |
 
 ---
 
-## 4. Understanding the Human-in-the-Loop Interaction Flow
+## 2. Slack App Configuration (Admin Setup)
 
-```
-[Agent generates post]
-         │
-         ▼
-[Slack Block Kit card delivered to channel]
-┌────────────────────────────────────────────────────────┐
-│  📝 *New LinkedIn Post Draft For Review*               │
-│  "Building autonomous AI pipelines with LangGraph..."  │
-│                                                        │
-│  [ ✅ Yes (Approve & Post) ]    [ ❌ No (Discard) ]     │
-└────────────────────────────────────────────────────────┘
-         │
-         │  (User clicks "Approve")
-         ▼
-[Slack POST payload -> /slack/interactions]
-         │
-         ├─► Validates post ID in database
-         ├─► Updates post status: APPROVED -> PUBLISHED
-         ├─► Publishes content directly to LinkedIn API
-         └─► Updates original Slack message with confirmation badge:
-             "🚀 Post #12 published to LinkedIn by @user"
+Only the workspace administrator performs these steps once at [api.slack.com/apps](https://api.slack.com/apps):
+
+### A. Bot Token Scopes (`OAuth & Permissions`)
+In your Slack App settings under **OAuth & Permissions** -> **Scopes** -> **Bot Token Scopes**, add:
+* `chat:write` — Send direct messages and interactive cards.
+* `users:read.email` — Look up workspace members by email address (`users.lookupByEmail`).
+* `im:write` — Open direct message channels with users.
+
+Install the app to your workspace and copy the **Bot User OAuth Token** (`xoxb-...`) to `SLACK_BOT_TOKEN`.
+
+### B. Signing Secret (`Basic Information`)
+Under **Basic Information** -> **App Credentials**, copy the **Signing Secret** to `SLACK_SIGNING_SECRET`.
+
+### C. Enable Interactivity (`Interactivity & Shortcuts`)
+1. In the sidebar, select **Interactivity & Shortcuts**.
+2. Turn **Interactivity** to **On**.
+3. Set the **Request URL** to your backend `/slack/interactions` endpoint:
+   - **Local development (via ngrok)**: `https://<your-subdomain>.ngrok-free.app/slack/interactions`
+   - **Production (Render / Cloud)**: `https://<your-app-domain>.onrender.com/slack/interactions`
+4. Click **Save Changes**.
+
+---
+
+## 3. How the Multi-User DM Approval Flow Works
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as User (Author)
+    participant Auth as Backend OAuth (/linkedin/callback)
+    participant SlackAPI as Slack API
+    participant Agent as Post Flow / MCP
+    participant Webhook as /slack/interactions
+    participant LinkedIn as LinkedIn REST API
+
+    User->>Auth: Log in with LinkedIn OAuth
+    Auth->>SlackAPI: users.lookupByEmail(email)
+    SlackAPI-->>Auth: slack_user_id (e.g. U12345678)
+    Auth->>Auth: Persist slack_user_id mapped to sub
+
+    User->>Agent: POST /posts/generate (topic)
+    Agent->>Agent: Save post with owner_sub and status=pending
+    Agent->>SlackAPI: chat.postMessage(channel=slack_user_id, blocks)
+    SlackAPI-->>User: Delivers private DM with Approve/Reject buttons
+
+    User->>SlackAPI: Clicks "✅ Approve & Post"
+    SlackAPI->>Webhook: POST /slack/interactions (signature + action payload)
+    Webhook->>Webhook: Verify signature & verify clicking user == post.owner_sub
+    Webhook->>LinkedIn: Publish approved post
+    Webhook->>SlackAPI: chat.update (replaces buttons with "🚀 Published" confirmation)
 ```
 
 ---
 
-## 5. Testing the Slack Integration
+## 4. Endpoints for Slack Connection Management
 
-To test your Slack integration without running the full agent workflow:
-
-```bash
-# Activate your virtual environment and run the Slack test suite
-source .venv/bin/activate
-pytest project/backend/tests/test_mcp_servers.py -k test_slack
+### `GET /slack/status`
+Checks if the currently authenticated user has their Slack account linked:
+```json
+{
+  "connected": true,
+  "slack_user_id": "U08XXXXXXXX",
+  "invite_url": "https://join.slack.com/t/...",
+  "message": "Slack DM approval is active."
+}
 ```
-This sends a test message directly to your configured channel and verifies webhook delivery.
+
+### `POST /slack/recheck`
+If a user logged in to LinkedIn *before* joining the Slack workspace, clicking **"Check Slack Connection"** invokes this endpoint. It fetches their stored LinkedIn profile email, queries `users.lookupByEmail`, and links their `slack_user_id` without requiring re-authentication.
+
+### `POST /slack/interactions`
+Handles button clicks from Slack DMs:
+* **HMAC Signature Check**: Validates `X-Slack-Signature` and timestamp freshness (< 5 minutes).
+* **Ownership Verification**: Verifies the clicking Slack user matches `get_slack_user_id(post.owner_sub)`.
+* **Idempotent Execution**: Dispatches LinkedIn publishing and updates the DM message card.
+
+---
+
+## 5. Web Dashboard Approvals
+
+If a user chooses not to join Slack or has not connected their account yet:
+* Generated posts remain in `pending` status.
+* Users can review and approve/reject directly from the web dashboard:
+  - `POST /posts/{post_id}/approve`
+  - `POST /posts/{post_id}/reject`
+* Both endpoints verify session ownership (`owner_sub == user_sub`) and synchronize Slack message cards if a DM was sent.
