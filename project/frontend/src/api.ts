@@ -152,3 +152,22 @@ export async function connectSlack(email?: string): Promise<SlackConnectResponse
   return response.json();
 }
 
+export async function disconnectSlack(): Promise<{ success: boolean; connected: boolean; message: string }> {
+  const response = await fetch("/slack/disconnect", {
+    method: "POST",
+  });
+  if (!response.ok) {
+    let errorMsg = `Failed to delink Slack (${response.status})`;
+    try {
+      const errorData = await response.json();
+      if (errorData.detail) {
+        errorMsg = errorData.detail;
+      }
+    } catch {
+      // fallback
+    }
+    throw new Error(errorMsg);
+  }
+  return response.json();
+}
+

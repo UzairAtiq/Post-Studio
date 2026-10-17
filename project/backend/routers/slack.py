@@ -16,7 +16,6 @@ from config.settings import (
     POST_FLOW_MODE,
     SLACK_BOT_TOKEN,
     SLACK_CHANNEL_ID,
-    SLACK_IGNORE_LINKEDIN_EMAIL,
     SLACK_SIGNING_SECRET,
     SLACK_WORKSPACE_INVITE_URL,
 )
@@ -33,6 +32,7 @@ from services.slack import (
 from services.storage import (
     get_linkedin_token_record,
     get_post_by_id,
+    get_session_sub,
     get_slack_user_id,
     set_slack_user_id,
 )
@@ -49,33 +49,55 @@ class SlackConnectRequest(BaseModel):
 
 @router.get("/slack/status")
 def get_slack_status(
-    user_sub: str = Depends(get_current_user),
+    request: Request,
 ) -> dict[str, Any]:
     """Check Slack connection status for the authenticated user.
 
     Purpose:
-        Reports whether the user's LinkedIn profile is mapped to a Slack member ID
+        Reports whether the user's account is mapped to a Slack member ID
         in the admin's Slack workspace, and provides the workspace invite link if not.
 
     Steps:
-        1. Extract authenticated user sub from dependency.
-        2. Query storage for user's mapped slack_user_id via get_slack_user_id.
-        3. Query stored token record to extract profile email if available.
-        4. Return connection status flag, slack_user_id, email, channel_id, and invite URL.
+        1. Extract session_id cookie and resolve active user sub.
+        2. If unauthenticated, return unlinked status without exposing sensitive linkage.
+        3. Query storage for user's mapped slack_user_id via get_slack_user_id.
+        4. Query stored token record to extract profile email if available.
+        5. Return connection status flag, slack_user_id, email, channel_id, and invite URL.
 
     Returns:
         dict[str, Any]: Dictionary with connected boolean, slack_user_id, email, channel_id, and invite_url.
 
     Raises:
-        HTTPException: 401 Unauthorized if user is not authenticated.
+        HTTPException: 401 Unauthorized if session is invalid or expired.
     """
+    session_id = request.cookies.get("session_id")
+    if session_id:
+        user_sub = get_session_sub(session_id)
+        if not user_sub:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session expired or invalid. Please log in again.",
+            )
+    else:
+        user_sub = None
+
+    if not user_sub:
+        return {
+            "connected": False,
+            "slack_user_id": None,
+            "email": None,
+            "channel_id": SLACK_CHANNEL_ID or None,
+            "invite_url": SLACK_WORKSPACE_INVITE_URL,
+            "message": "Slack account not connected. Please connect LinkedIn first.",
+        }
+
     slack_uid = get_slack_user_id(user_sub)
     connected = bool(slack_uid)
 
     record = get_linkedin_token_record(token_id=user_sub)
     profile_id_str = record.get("profile_id") if record else None
     email = None
-    if not SLACK_IGNORE_LINKEDIN_EMAIL and profile_id_str:
+    if profile_id_str:
         try:
             profile_data = json.loads(profile_id_str)
             if isinstance(profile_data, dict):
@@ -97,6 +119,43 @@ def get_slack_status(
     }
 
 
+@router.post("/slack/disconnect")
+def disconnect_slack_user(
+    request: Request,
+) -> dict[str, Any]:
+    """Delink and remove stored Slack user mapping for the current user.
+
+    Purpose:
+        Clears the persisted Slack user ID to allow re-connecting with a different email
+        or stopping Slack DM delivery.
+
+    Steps:
+        1. Extract session_id cookie and resolve active user person URN.
+        2. Unlink slack_user_id in storage for resolved sub, bare sub, and default.
+        3. Return success response.
+
+    Returns:
+        dict[str, Any]: Dictionary with success, connected: False, and message.
+    """
+    session_id = request.cookies.get("session_id")
+    user_sub = get_session_sub(session_id) if session_id else None
+
+    if user_sub:
+        set_slack_user_id(sub=user_sub, slack_user_id=None)
+        bare_sub = user_sub[len("urn:li:person:"):] if user_sub.startswith("urn:li:person:") else None
+        if bare_sub:
+            set_slack_user_id(sub=bare_sub, slack_user_id=None)
+
+    set_slack_user_id(sub="default", slack_user_id=None)
+    logger.info(f"Delinked Slack mapping for user '{user_sub or 'default'}'.")
+
+    return {
+        "success": True,
+        "connected": False,
+        "message": "Slack account has been delinked. Enter your email to reconnect.",
+    }
+
+
 @router.post("/slack/connect")
 @router.post("/slack/recheck")
 def recheck_or_connect_slack(
@@ -112,7 +171,7 @@ def recheck_or_connect_slack(
 
     Steps:
         1. Extract authenticated user sub from dependency.
-        2. Determine target email from request body or stored profile record (unless ignored by flag).
+        2. Determine target email from request body or stored profile record.
         3. If no email is available, raise HTTP 400 Bad Request.
         4. Validate that input is an email, not a URL.
         5. Query Slack API via lookup_slack_user_id(target_email).
@@ -131,7 +190,7 @@ def recheck_or_connect_slack(
     custom_email = payload.email.strip() if (payload and payload.email and payload.email.strip()) else None
 
     email = custom_email
-    if not email and not SLACK_IGNORE_LINKEDIN_EMAIL:
+    if not email:
         record = get_linkedin_token_record(token_id=user_sub)
         profile_id_str = record.get("profile_id") if record else None
         if profile_id_str:
@@ -145,11 +204,7 @@ def recheck_or_connect_slack(
     if not email:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                "Please enter your Slack account email (LinkedIn email auto-fallback is disabled by flag)."
-                if SLACK_IGNORE_LINKEDIN_EMAIL
-                else "No email provided or found in LinkedIn profile. Please enter your Slack email."
-            ),
+            detail="No email provided or found in LinkedIn profile. Please enter your Slack email.",
         )
 
     clean_email = email.strip()

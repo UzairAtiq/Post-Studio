@@ -5,6 +5,7 @@ import {
   fetchLinkedInStatus,
   fetchSlackStatus,
   connectSlack,
+  disconnectSlack,
 } from "@/api";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -16,6 +17,7 @@ import {
   CheckCircle2,
   AlertCircle,
   Loader2,
+  Unlink2,
 } from "lucide-react";
 
 export const ConnectionCard: React.FC = () => {
@@ -63,6 +65,18 @@ export const ConnectionCard: React.FC = () => {
     },
     onError: (err: Error) => {
       setSlackMessage({ text: err.message || "Failed to link Slack account.", isError: true });
+    },
+  });
+
+  const disconnectMutation = useMutation({
+    mutationFn: disconnectSlack,
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["slack-status"] });
+      setSlackEmailInput("");
+      setSlackMessage({ text: data.message || "Slack account delinked.", isError: false });
+    },
+    onError: (err: Error) => {
+      setSlackMessage({ text: err.message || "Failed to delink Slack account.", isError: true });
     },
   });
 
@@ -369,17 +383,18 @@ export const ConnectionCard: React.FC = () => {
                     type="button"
                     onClick={() => {
                       setSlackMessage(null);
-                      connectMutation.mutate(slackEmailInput.trim());
+                      disconnectMutation.mutate();
                     }}
-                    disabled={connectMutation.isPending}
-                    className="flex-1 inline-flex items-center justify-center space-x-1.5 rounded-full bg-neutral-800 hover:bg-neutral-700 px-4 py-2 text-xs font-semibold text-neutral-200 transition-colors"
+                    disabled={disconnectMutation.isPending}
+                    className="flex-1 inline-flex items-center justify-center space-x-1.5 rounded-full bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 px-4 py-2 text-xs font-semibold text-rose-300 transition-colors disabled:opacity-50 active:scale-[0.98]"
+                    title="Delink Slack account"
                   >
-                    {connectMutation.isPending ? (
+                    {disconnectMutation.isPending ? (
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
                     ) : (
-                      <MessageSquare className="w-3.5 h-3.5" />
+                      <Unlink2 className="w-3.5 h-3.5" />
                     )}
-                    <span>Re-link / Refresh</span>
+                    <span>Delink Slack</span>
                   </button>
 
                   {slackStatus?.invite_url && (

@@ -22,8 +22,6 @@ services:
         sync: false
       - key: SLACK_CHANNEL_ID
         sync: false
-      - key: SLACK_IGNORE_LINKEDIN_EMAIL
-        sync: false
       - key: SLACK_WEBHOOK_URL
         sync: false
       - key: LINKEDIN_CLIENT_ID

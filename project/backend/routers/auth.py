@@ -11,7 +11,6 @@ import requests
 from config.settings import (
     LINKEDIN_CLIENT_ID,
     LINKEDIN_CLIENT_SECRET,
-    SLACK_IGNORE_LINKEDIN_EMAIL,
 )
 from services.storage import (
     create_session,
@@ -21,7 +20,6 @@ from services.storage import (
     get_valid_linkedin_access_token,
     refresh_linkedin_access_token,
     save_linkedin_token,
-    set_slack_user_id,
 )
 from services.linkedin_service import fetch_linkedin_person_urn
 from utils import FRONTEND_DIR, get_effective_redirect_uri
@@ -317,25 +315,6 @@ async def linkedin_callback(
         scope=scope,
         token_id="default",
     )
-
-    # Attempt to link user's Slack account by email in the shared Slack workspace (if not disabled by flag)
-    if user_email and not SLACK_IGNORE_LINKEDIN_EMAIL:
-        try:
-            from services.slack import lookup_slack_user_id
-
-            slack_uid = lookup_slack_user_id(user_email)
-            if slack_uid:
-                set_slack_user_id(sub=person_urn, slack_user_id=slack_uid)
-                if sub:
-                    set_slack_user_id(sub=sub, slack_user_id=slack_uid)
-                set_slack_user_id(sub="default", slack_user_id=slack_uid)
-                logger.info(f"Linked Slack user ID '{slack_uid}' for LinkedIn user '{person_urn}'.")
-            else:
-                logger.info(f"User email '{user_email}' not found in Slack workspace; Slack unlinked.")
-        except Exception as slack_err:
-            logger.warning(f"Failed to lookup or link Slack user during callback: {slack_err}")
-    elif SLACK_IGNORE_LINKEDIN_EMAIL:
-        logger.info("SLACK_IGNORE_LINKEDIN_EMAIL flag is active: skipped auto-linking Slack with LinkedIn email.")
 
     logger.info(f"successfully authenticated LinkedIn user: {user_name} ({person_urn})")
 

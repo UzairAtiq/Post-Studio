@@ -374,3 +374,14 @@ def test_custom_email_slack_connect():
     assert status_data["connected"] is True
     assert status_data["slack_user_id"] == "U_CUSTOM_SLACK_123"
 
+    # 4. Disconnect endpoint delinks the user and reverts status to unlinked
+    delink_resp = client.post("/slack/disconnect")
+    assert delink_resp.status_code == 200
+    delink_data = delink_resp.json()
+    assert delink_data["success"] is True
+    assert delink_data["connected"] is False
+
+    status_resp_delinked = client.get("/slack/status")
+    assert status_resp_delinked.status_code == 200
+    assert status_resp_delinked.json()["connected"] is False
+
