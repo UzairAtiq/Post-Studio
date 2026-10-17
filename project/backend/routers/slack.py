@@ -14,6 +14,7 @@ from typing import Any
 
 from config.settings import (
     POST_FLOW_MODE,
+    SLACK_BOT_TOKEN,
     SLACK_CHANNEL_ID,
     SLACK_SIGNING_SECRET,
     SLACK_WORKSPACE_INVITE_URL,
@@ -146,6 +147,16 @@ def recheck_or_connect_slack(
         )
 
     clean_email = email.strip()
+    if not SLACK_BOT_TOKEN:
+        return {
+            "success": False,
+            "connected": False,
+            "slack_user_id": None,
+            "email": clean_email,
+            "invite_url": SLACK_WORKSPACE_INVITE_URL,
+            "message": "SLACK_BOT_TOKEN is not configured on the server. Please add SLACK_BOT_TOKEN to your environment variables.",
+        }
+
     slack_uid = lookup_slack_user_id(clean_email)
     if slack_uid:
         set_slack_user_id(sub=user_sub, slack_user_id=slack_uid)
