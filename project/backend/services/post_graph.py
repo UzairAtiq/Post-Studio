@@ -55,6 +55,7 @@ async def start_post_flow(
     topic: str = "AI advancements and modern software engineering",
     post_id: str | None = None,
     user_sub: str | None = None,
+    llm_config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Execute LangGraph post generation flow until human approval interruption.
 
@@ -103,6 +104,7 @@ async def start_post_flow(
                 "topic": topic,
                 "post_id": resolved_post_id,
                 "user_sub": user_sub,
+                "llm_config": llm_config,
             },
             config=config,
         )

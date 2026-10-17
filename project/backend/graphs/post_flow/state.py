@@ -29,3 +29,5 @@ class PostFlowState(TypedDict, total=False):
     error: str | None
     is_complete: bool
     final_check_notes: str | None
+    user_sub: str | None
+    llm_config: dict[str, Any] | None

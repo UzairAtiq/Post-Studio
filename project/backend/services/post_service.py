@@ -48,15 +48,18 @@ def notify_failure(post_id: str, node: str, reason: str) -> None:
         logger.error(f"Failed to deliver Slack failure alert for post_id={post_id}: {notify_err}")
 
 
-def generate_post(topic: str) -> dict[str, Any]:
-    """Generate technical LinkedIn post content via Groq LLM service.
+def generate_post(
+    topic: str,
+    llm_config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Generate technical LinkedIn post content via Groq or custom LLM service.
 
     Purpose:
-        Validates topic input and generates targeted post content using Groq LLM.
+        Validates topic input and generates targeted post content using Groq or custom LLM.
 
     Steps:
         1. Validate topic is non-empty.
-        2. Call Groq service to generate post text.
+        2. Call LLM service with optional custom API key, host, and model to generate post text.
         3. Return success payload containing generated content.
 
     Returns:
@@ -70,7 +73,12 @@ def generate_post(topic: str) -> dict[str, Any]:
 
     clean_topic = topic.strip()
     try:
-        content = generate_linkedin_post_content(topic=clean_topic)
+        content = generate_linkedin_post_content(
+            topic=clean_topic,
+            api_key=(llm_config or {}).get("api_key"),
+            base_url=(llm_config or {}).get("base_url"),
+            model=(llm_config or {}).get("model"),
+        )
         return {
             "success": True,
             "topic": clean_topic,

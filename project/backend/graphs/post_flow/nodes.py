@@ -83,8 +83,13 @@ async def generate_node(
     """
     topic = state.get("topic") or "AI advancements and modern software engineering"
     post_id = state.get("post_id", "")
+    llm_config = state.get("llm_config")
     try:
-        res = await _execute_mcp_tool("generate_post", {"topic": topic}, config)
+        res = await _execute_mcp_tool(
+            "generate_post",
+            {"topic": topic, "llm_config": llm_config},
+            config,
+        )
         if not res.get("success"):
             err_msg = res.get("error", "Failed generating post content")
             logger.error(f"generate node failed: {err_msg}")

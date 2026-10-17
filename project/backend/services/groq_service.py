@@ -9,8 +9,13 @@ logger = logging.getLogger("groq_service")
 
 
 @observe(name="generate_linkedin_post")
-def generate_linkedin_post_content(topic: str = "modern software engineering and AI agents") -> str:
-    """Generate high-impact LinkedIn post text using Groq LLM API.
+def generate_linkedin_post_content(
+    topic: str = "modern software engineering and AI agents",
+    api_key: str | None = None,
+    base_url: str | None = None,
+    model: str | None = None,
+) -> str:
+    """Generate high-impact LinkedIn post text using Groq or any OpenAI-compatible LLM API.
 
     Error Paradigm:
         RAISES EXCEPTIONS. This service follows an exception-raising error style;
@@ -18,14 +23,14 @@ def generate_linkedin_post_content(topic: str = "modern software engineering and
         directly to the caller. It never returns error dictionaries.
 
     Purpose:
-        Calls the Groq completions endpoint to craft engaging, professional
+        Calls the Groq or OpenAI-compatible completions endpoint to craft engaging, professional
         LinkedIn copy without emoji embellishments according to system prompts.
 
     Steps:
-        1. Validate GROQ_API_KEY configuration; raise ValueError if absent.
-        2. Instantiate the Groq API client with configured credentials.
+        1. Resolve active API key, base URL, and model from custom arguments or settings.
+        2. Instantiate either the OpenAI or Groq client with resolved configuration.
         3. Define system persona and format constraints (concise, no emojis, 3-5 hashtags).
-        4. Send chat completion request to configured Groq model.
+        4. Send chat completion request to configured LLM model.
         5. Extract response text and validate non-emptiness.
         6. Return stripped post text string.
 
@@ -33,15 +38,15 @@ def generate_linkedin_post_content(topic: str = "modern software engineering and
         str: Clean generated post content ready for human review.
 
     Raises:
-        ValueError: If GROQ_API_KEY environment variable is missing.
-        RuntimeError: If Groq API request fails, times out, or returns empty text.
+        ValueError: If neither a custom API key nor GROQ_API_KEY is configured.
+        RuntimeError: If LLM API request fails, times out, or returns empty text.
     """
-    # validate api key existence before initializing client
-    if not GROQ_API_KEY:
-        raise ValueError("GROQ_API_KEY is not set. Please provide it in the .env file.")
+    effective_key = (api_key and api_key.strip()) or GROQ_API_KEY
+    if not effective_key:
+        raise ValueError("GROQ_API_KEY is not set. Please provide a custom API key or set it in the .env file.")
 
-    # initialize groq sdk client
-    client = Groq(api_key=GROQ_API_KEY)
+    effective_base_url = (base_url and base_url.strip()) or None
+    effective_model = (model and model.strip()) or GROQ_MODEL
 
     # define persona and formatting rules for post generation
     system_prompt = (
@@ -54,25 +59,35 @@ def generate_linkedin_post_content(topic: str = "modern software engineering and
     user_prompt = f"Create a compelling LinkedIn post about: {topic}"
 
     try:
-        # request chat completion from groq api
+        if effective_base_url or (api_key and api_key.strip() != GROQ_API_KEY):
+            from openai import OpenAI
+
+            client = OpenAI(
+                api_key=effective_key,
+                base_url=effective_base_url or "https://api.openai.com/v1",
+            )
+        else:
+            client = Groq(api_key=effective_key)
+
+        # request chat completion from LLM API
         completion = client.chat.completions.create(
-            model=GROQ_MODEL,
+            model=effective_model,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.7,
-            max_completion_tokens=1024,
+            max_tokens=1024,
         )
 
         # extract generated message content
         post_text = completion.choices[0].message.content
         if not post_text:
-            raise RuntimeError("received empty response from Groq LLM")
+            raise RuntimeError("received empty response from LLM")
 
         return post_text.strip()
 
     except Exception as err:
         # log failure details and re-raise with original context
-        logger.error(f"failed to generate post from Groq LLM: {err}")
-        raise RuntimeError(f"Groq generation failed: {err}") from err
+        logger.error(f"failed to generate post from LLM: {err}")
+        raise RuntimeError(f"LLM generation failed: {err}") from err

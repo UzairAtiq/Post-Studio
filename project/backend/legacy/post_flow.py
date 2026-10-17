@@ -21,18 +21,19 @@ logger = logging.getLogger("legacy_post_flow")
 def run_legacy_post_flow(
     topic: str = "AI advancements and modern software engineering",
     user_sub: str | None = None,
+    llm_config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Execute legacy procedural post generation and Slack approval dispatch.
 
     Purpose:
-        Automates creation of a LinkedIn post on a given topic using Groq LLM,
+        Automates creation of a LinkedIn post on a given topic using Groq or custom LLM,
         stores it with pending status, and dispatches an interactive approval request to Slack.
 
     Steps:
         1. Validate that a valid, active LinkedIn access token exists in storage for user or default.
         2. If token is missing or expired, raise HTTP 401 Unauthorized.
         3. Resolve the user's LinkedIn person URN.
-        4. Generate post content using Groq LLM based on the topic parameter.
+        4. Generate post content using Groq or custom LLM based on the topic parameter.
         5. Generate a unique post identifier.
         6. Persist pending post record into storage with profile ID and token.
         7. Send interactive Block Kit approval message to configured Slack channel.
@@ -56,7 +57,12 @@ def run_legacy_post_flow(
         )
 
     person_urn = user_sub or get_linkedin_person_urn() or fetch_linkedin_person_urn(token)
-    post_content = generate_linkedin_post_content(topic=topic)
+    post_content = generate_linkedin_post_content(
+        topic=topic,
+        api_key=(llm_config or {}).get("api_key"),
+        base_url=(llm_config or {}).get("base_url"),
+        model=(llm_config or {}).get("model"),
+    )
     post_id = generate_next_post_id()
 
     resolved_owner = user_sub or person_urn

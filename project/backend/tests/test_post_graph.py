@@ -200,7 +200,7 @@ def test_endpoint_mode_switching_legacy():
 def test_endpoint_mode_switching_graph():
     """Test /posts/generate endpoint executes graph flow when POST_FLOW_MODE=graph."""
     client = TestClient(app)
-    async def mock_start(topic: str = ""):
+    async def mock_start(topic: str = "", *args, **kwargs):
         return {"success": True, "mode": "graph", "post_id": "post_mock"}
 
     with (
@@ -210,6 +210,31 @@ def test_endpoint_mode_switching_graph():
         resp = client.post("/posts/generate?topic=Testing")
         assert resp.status_code == 200
         assert resp.json().get("mode") == "graph"
+
+
+def test_endpoint_custom_llm_headers():
+    """Test /posts/generate forwards custom LLM headers in llm_config."""
+    client = TestClient(app)
+    captured_config = {}
+
+    async def mock_start(topic: str = "", **kwargs):
+        captured_config.update(kwargs.get("llm_config") or {})
+        return {"success": True, "mode": "graph", "post_id": "post_mock"}
+
+    with (
+        patch("routers.posts.POST_FLOW_MODE", "graph"),
+        patch("services.post_graph.start_post_flow", side_effect=mock_start),
+    ):
+        headers = {
+            "X-LLM-API-Key": "test-key-123",
+            "X-LLM-Base-URL": "https://api.together.xyz/v1",
+            "X-LLM-Model": "meta-llama/Llama-3-70b-chat-hf",
+        }
+        resp = client.post("/posts/generate?topic=Testing", headers=headers)
+        assert resp.status_code == 200
+        assert captured_config.get("api_key") == "test-key-123"
+        assert captured_config.get("base_url") == "https://api.together.xyz/v1"
+        assert captured_config.get("model") == "meta-llama/Llama-3-70b-chat-hf"
 
 
 @pytest.mark.anyio

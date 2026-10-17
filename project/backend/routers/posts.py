@@ -284,14 +284,32 @@ async def generate_post_endpoint(
     """
     session_id = request.cookies.get("session_id")
 
+    custom_api_key = request.headers.get("x-llm-api-key") or None
+    custom_base_url = request.headers.get("x-llm-base-url") or None
+    custom_model = request.headers.get("x-llm-model") or None
+
+    llm_config: dict[str, Any] | None = None
+    if custom_api_key or custom_base_url or custom_model:
+        llm_config = {
+            "api_key": custom_api_key,
+            "base_url": custom_base_url,
+            "model": custom_model,
+        }
+
     if POST_FLOW_MODE == "graph":
         from services.post_graph import start_post_flow
 
         if session_id:
+            if llm_config:
+                return await start_post_flow(topic=topic, user_sub=user_sub, llm_config=llm_config)
             return await start_post_flow(topic=topic, user_sub=user_sub)
+        if llm_config:
+            return await start_post_flow(topic=topic, llm_config=llm_config)
         return await start_post_flow(topic=topic)
 
     from legacy.post_flow import run_legacy_post_flow
 
+    if llm_config:
+        return run_legacy_post_flow(topic=topic, user_sub=user_sub, llm_config=llm_config)
     return run_legacy_post_flow(topic=topic, user_sub=user_sub)
 

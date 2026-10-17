@@ -24,6 +24,7 @@ mcp = FastMCP("linkedin-post-generator")
 @mcp.tool()
 def generate_post(
     topic: str = "AI advancements and modern software engineering",
+    llm_config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Generate technical LinkedIn post content via AI completion service.
 
@@ -31,7 +32,7 @@ def generate_post(
         Thin MCP wrapper around post generation service.
 
     Steps:
-        1. Delegate directly to post_service.generate_post.
+        1. Delegate directly to post_service.generate_post with optional llm_config.
         2. Return resulting status and generated content.
 
     Returns:
@@ -40,7 +41,7 @@ def generate_post(
     Raises:
         None.
     """
-    return generate_post_service(topic=topic)
+    return generate_post_service(topic=topic, llm_config=llm_config)
 
 
 @mcp.tool()

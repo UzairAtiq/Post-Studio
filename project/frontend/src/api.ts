@@ -77,13 +77,33 @@ export async function deletePost(postId: string): Promise<{ success: boolean; po
   return response.json();
 }
 
-export async function generatePost(topic: string): Promise<GeneratePostResponse> {
+export interface LLMConfig {
+  apiKey?: string;
+  baseUrl?: string;
+  model?: string;
+}
+
+export async function generatePost(
+  topic: string,
+  llmConfig?: LLMConfig
+): Promise<GeneratePostResponse> {
   const url = `/posts/generate?topic=${encodeURIComponent(topic)}`;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (llmConfig?.apiKey) {
+    headers["X-LLM-API-Key"] = llmConfig.apiKey.trim();
+  }
+  if (llmConfig?.baseUrl) {
+    headers["X-LLM-Base-URL"] = llmConfig.baseUrl.trim();
+  }
+  if (llmConfig?.model) {
+    headers["X-LLM-Model"] = llmConfig.model.trim();
+  }
+
   const response = await fetch(url, {
     method: GENERATE_HTTP_METHOD,
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers,
   });
 
   if (!response.ok) {
