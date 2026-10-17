@@ -54,27 +54,14 @@ def get_post_graph_runtime() -> tuple[CompiledStateGraph, GraphMCPClient | None,
 async def start_post_flow(
     topic: str = "AI advancements and modern software engineering",
     post_id: str | None = None,
+    user_sub: str | None = None,
 ) -> dict[str, Any]:
-    """Execute LangGraph post generation flow until human approval interruption.
+    """Execute LangGraph post generation flow until human approval interruption."""
+    token_id = user_sub or "default"
+    token = get_valid_linkedin_access_token(token_id=token_id)
+    if not token and token_id != "default":
+        token = get_valid_linkedin_access_token(token_id="default")
 
-    Purpose:
-        Initializes graph run with thread_id set to post_id, executes generation,
-        saves post, sends interactive Slack request, and pauses at interrupt.
-
-    Steps:
-        1. Verify active LinkedIn access token in storage (HTTP 401 if missing).
-        2. Resolve or generate target post_id.
-        3. Acquire compiled graph and active checkpointer.
-        4. Invoke graph asynchronously with recursion limit until interrupt.
-        5. Return summary payload matching legacy response shape.
-
-    Returns:
-        dict[str, Any]: Summary dictionary with post_id, status, content, and Slack delivery info.
-
-    Raises:
-        HTTPException: 401 if unauthenticated, 502 on upstream failure, 500 on unexpected error.
-    """
-    token = get_valid_linkedin_access_token()
     if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

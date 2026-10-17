@@ -21,6 +21,7 @@ from config.settings import (
     LINKEDIN_CLIENT_SECRET,
     POSTS_STORAGE_PATH,
 )
+from services.crypto import decrypt_token, encrypt_token
 
 logger = logging.getLogger("storage_service")
 
@@ -450,6 +451,8 @@ def save_post_record(
         "decision_action": None,
     }
 
+    enc_access_token = encrypt_token(access_token) or access_token
+
     # Tier 1: PostgreSQL
     conn = get_postgres_connection()
     if conn:
@@ -477,7 +480,7 @@ def save_post_record(
                             post_id,
                             content,
                             profile_id,
-                            access_token,
+                            enc_access_token,
                             status_str,
                             now_iso,
                             now_iso,
@@ -514,7 +517,7 @@ def save_post_record(
                     post_id,
                     content,
                     profile_id,
-                    access_token,
+                    enc_access_token,
                     status_str,
                     now_iso,
                     now_iso,
@@ -576,7 +579,7 @@ def get_post_by_id(post_id: str) -> dict[str, Any] | None:
                             "post_id": row[0],
                             "content": row[1],
                             "profile_id": row[2],
-                            "access_token": row[3],
+                            "access_token": decrypt_token(row[3]) or row[3],
                             "status": row[4],
                             "created_at": row[5],
                             "updated_at": row[6],
@@ -607,7 +610,7 @@ def get_post_by_id(post_id: str) -> dict[str, Any] | None:
                     "post_id": row[0],
                     "content": row[1],
                     "profile_id": row[2],
-                    "access_token": row[3],
+                    "access_token": decrypt_token(row[3]) or row[3],
                     "status": row[4],
                     "created_at": row[5],
                     "updated_at": row[6],
@@ -757,7 +760,7 @@ def list_posts() -> list[dict[str, Any]]:
                                     "post_id": row[0],
                                     "content": row[1],
                                     "profile_id": row[2],
-                                    "access_token": row[3],
+                                    "access_token": decrypt_token(row[3]) or row[3],
                                     "status": row[4],
                                     "created_at": row[5],
                                     "updated_at": row[6],
@@ -792,7 +795,7 @@ def list_posts() -> list[dict[str, Any]]:
                             "post_id": row[0],
                             "content": row[1],
                             "profile_id": row[2],
-                            "access_token": row[3],
+                            "access_token": decrypt_token(row[3]) or row[3],
                             "status": row[4],
                             "created_at": row[5],
                             "updated_at": row[6],
@@ -900,6 +903,10 @@ def save_linkedin_token(
     expires_at = (now_utc + timedelta(seconds=expires_in)) if expires_in else None
     refresh_expires_at = (now_utc + timedelta(seconds=refresh_expires_in)) if refresh_expires_in else None
 
+    # Encrypt tokens for secure storage at rest
+    enc_access_token = encrypt_token(access_token) or access_token
+    enc_refresh_token = encrypt_token(refresh_token) if refresh_token else None
+
     conn = get_postgres_connection()
     if conn:
         try:
@@ -924,8 +931,8 @@ def save_linkedin_token(
                         """,
                         (
                             token_id,
-                            access_token,
-                            refresh_token,
+                            enc_access_token,
+                            enc_refresh_token,
                             expires_at,
                             refresh_expires_at,
                             profile_id,
@@ -964,8 +971,8 @@ def save_linkedin_token(
             """,
             (
                 token_id,
-                access_token,
-                refresh_token,
+                enc_access_token,
+                enc_refresh_token,
                 expires_at.isoformat() if expires_at else None,
                 refresh_expires_at.isoformat() if refresh_expires_at else None,
                 profile_id,
@@ -976,12 +983,13 @@ def save_linkedin_token(
         )
         sqlite_conn.commit()
 
-    # Save local backup file
-    token_backup_file = BASE_DIR / ".linkedin_token"
-    try:
-        token_backup_file.write_text(access_token, encoding="utf-8")
-    except OSError:
-        pass
+    # Save local backup file for default development credentials
+    if token_id == "default":
+        token_backup_file = BASE_DIR / ".linkedin_token"
+        try:
+            token_backup_file.write_text(enc_access_token, encoding="utf-8")
+        except OSError:
+            pass
 
     return {
         "success": True,
@@ -995,21 +1003,8 @@ def get_linkedin_token_record(token_id: str = "default") -> dict[str, Any] | Non
     """Retrieve stored LinkedIn token record across storage tiers.
 
     Purpose:
-        Fetches credentials from PostgreSQL, SQLite, environment, or backup file.
-
-    Steps:
-        1. Initialize storage tables if needed.
-        2. Query PostgreSQL if reachable.
-        3. Query SQLite if PostgreSQL unavailable or misses.
-        4. Fall back to LINKEDIN_ACCESS_TOKEN environment variable.
-        5. Fall back to local .linkedin_token backup file.
-        6. Return credentials dictionary or None if absent.
-
-    Returns:
-        dict[str, Any] | None: Stored token data dictionary or None if not found.
-
-    Raises:
-        None.
+        Fetches credentials from PostgreSQL, SQLite, environment, or backup file
+        and decrypts tokens stored at rest.
     """
     init_storage()
     conn = get_postgres_connection()
@@ -1028,10 +1023,12 @@ def get_linkedin_token_record(token_id: str = "default") -> dict[str, Any] | Non
                     )
                     row = cur.fetchone()
                     if row:
+                        raw_access = row[1]
+                        raw_refresh = row[2]
                         return {
                             "id": row[0],
-                            "access_token": row[1],
-                            "refresh_token": row[2],
+                            "access_token": decrypt_token(raw_access) or raw_access,
+                            "refresh_token": decrypt_token(raw_refresh) if raw_refresh else None,
                             "expires_at": row[3],
                             "refresh_expires_at": row[4],
                             "profile_id": row[5],
@@ -1057,10 +1054,12 @@ def get_linkedin_token_record(token_id: str = "default") -> dict[str, Any] | Non
             )
             row = cur.fetchone()
             if row:
+                raw_access = row[1]
+                raw_refresh = row[2]
                 return {
                     "id": row[0],
-                    "access_token": row[1],
-                    "refresh_token": row[2],
+                    "access_token": decrypt_token(raw_access) or raw_access,
+                    "refresh_token": decrypt_token(raw_refresh) if raw_refresh else None,
                     "expires_at": row[3],
                     "refresh_expires_at": row[4],
                     "profile_id": row[5],
@@ -1074,9 +1073,10 @@ def get_linkedin_token_record(token_id: str = "default") -> dict[str, Any] | Non
     # Environment variable check
     env_token = os.getenv("LINKEDIN_ACCESS_TOKEN")
     if env_token:
+        dec_env = decrypt_token(env_token.strip()) or env_token.strip()
         return {
             "id": token_id,
-            "access_token": env_token.strip(),
+            "access_token": dec_env,
             "refresh_token": None,
             "expires_at": None,
             "profile_id": os.getenv("LINKEDIN_PROFILE_ID"),
@@ -1092,9 +1092,10 @@ def get_linkedin_token_record(token_id: str = "default") -> dict[str, Any] | Non
     if token_file.exists():
         file_token = token_file.read_text(encoding="utf-8").strip()
         if file_token:
+            dec_file = decrypt_token(file_token) or file_token
             return {
                 "id": token_id,
-                "access_token": file_token,
+                "access_token": dec_file,
                 "refresh_token": None,
                 "expires_at": None,
                 "profile_id": os.getenv("LINKEDIN_PROFILE_ID"),

@@ -141,27 +141,25 @@ def delete_post_endpoint(post_id: str) -> dict[str, Any]:
 # trigger post generation and slack approval request for testing
 @router.post("/posts/generate")
 async def generate_post_endpoint(
+    request: Request,
     topic: str = Query(default="AI advancements and modern software engineering"),
 ) -> dict[str, Any]:
-    """Generate a LinkedIn post using AI and send an interactive Slack approval request.
+    """Generate a LinkedIn post using AI and send an interactive Slack approval request."""
+    from services.storage import get_session_sub
 
-    Purpose:
-        Automates the creation of a LinkedIn post on a given topic using Groq LLM,
-        stores it with pending status, and dispatches an interactive approval request to Slack.
-        Routes to graph or legacy execution based on POST_FLOW_MODE configuration.
+    session_id = request.cookies.get("session_id")
+    user_sub = get_session_sub(session_id) if session_id else None
 
-    Returns:
-        dict[str, Any]: Summary dictionary with post_id, status, generated content, and Slack delivery info.
-
-    Raises:
-        HTTPException: 401 Unauthorized if LinkedIn is not authenticated.
-    """
     if POST_FLOW_MODE == "graph":
         from services.post_graph import start_post_flow
 
+        if user_sub:
+            return await start_post_flow(topic=topic, user_sub=user_sub)
         return await start_post_flow(topic=topic)
 
     from legacy.post_flow import run_legacy_post_flow
 
+    if user_sub:
+        return run_legacy_post_flow(topic=topic, user_sub=user_sub)
     return run_legacy_post_flow(topic=topic)
 

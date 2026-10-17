@@ -203,7 +203,7 @@ async def linkedin_callback(
         except Exception:
             person_urn = "urn:li:person:unknown"
 
-    # save tokens and profile into persistent database
+    # save tokens and profile into persistent database under user's person_urn
     save_linkedin_token(
         access_token=access_token,
         refresh_token=refresh_token,
@@ -212,6 +212,18 @@ async def linkedin_callback(
         profile_id=profile_id_str,
         person_urn=person_urn,
         scope=scope,
+        token_id=person_urn,
+    )
+    # Also save under default for backward compatibility with single-user / CLI mode
+    save_linkedin_token(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        expires_in=expires_in,
+        refresh_expires_in=refresh_expires_in,
+        profile_id=profile_id_str,
+        person_urn=person_urn,
+        scope=scope,
+        token_id="default",
     )
 
     logger.info(f"successfully authenticated LinkedIn user: {user_name} ({person_urn})")
@@ -259,28 +271,20 @@ def linkedin_logout(request: Request) -> Response:
 # linkedin token metadata endpoint
 @router.get("/linkedin/status")
 def linkedin_status(request: Request) -> dict[str, Any]:
-    """Retrieve current LinkedIn authentication state and token metadata.
-
-    Purpose:
-        Provides the client with authentication status, masked token preview,
-        person URN, expiration timestamp, and refresh token availability.
-
-    Steps:
-        1. Fetch stored token record from persistent database.
-        2. Resolve effective callback URI for reference.
-        3. If no record exists, return an unauthenticated status dictionary.
-        4. Mask access token (showing first 8 and last 4 characters).
-        5. Return dictionary of token properties and profile identifiers.
-
-    Returns:
-        dict[str, Any]: Authentication status and masked token metadata.
-
-    Raises:
-        None.
-    """
-    record = get_linkedin_token_record()
+    """Retrieve current LinkedIn authentication state and token metadata."""
     effective_uri = get_effective_redirect_uri(request)
+    session_id = request.cookies.get("session_id")
+    user_sub = get_session_sub(session_id) if session_id else None
+
+    record = None
+    if user_sub:
+        record = get_linkedin_token_record(token_id=user_sub)
+
+    # Fallback to default token record if no session-specific record is found
     if not record:
+        record = get_linkedin_token_record(token_id="default")
+
+    if not record or not record.get("access_token"):
         return {
             "authenticated": False,
             "redirect_uri": effective_uri,
@@ -304,26 +308,13 @@ def linkedin_status(request: Request) -> dict[str, Any]:
 
 # manual or programmatic token refresh endpoint
 @router.post("/linkedin/refresh")
-def refresh_token_endpoint() -> dict[str, Any]:
-    """Trigger programmatic or manual renewal of LinkedIn access token.
+def refresh_token_endpoint(request: Request) -> dict[str, Any]:
+    """Trigger programmatic or manual renewal of LinkedIn access token."""
+    session_id = request.cookies.get("session_id")
+    user_sub = get_session_sub(session_id) if session_id else None
+    token_id = user_sub or "default"
 
-    Purpose:
-        Uses the stored OAuth refresh token to request a new access token from
-        LinkedIn without requiring interactive user login.
-
-    Steps:
-        1. Invoke refresh_linkedin_access_token() against stored credentials.
-        2. Check result for success.
-        3. If failed, raise HTTP 400 with failure explanation.
-        4. Return success status dictionary.
-
-    Returns:
-        dict[str, Any]: Dictionary confirming successful token refresh.
-
-    Raises:
-        HTTPException: 400 Bad Request if token refresh fails.
-    """
-    result = refresh_linkedin_access_token()
+    result = refresh_linkedin_access_token(token_id=token_id)
     if not result.get("success"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
