@@ -12,7 +12,25 @@ _fernet_instance: Fernet | None = None
 
 
 def get_fernet() -> Fernet:
-    """Initialize or retrieve the Fernet cipher suite instance."""
+    """Initialize or retrieve the Fernet cipher suite instance.
+
+    Purpose:
+        Provides a singleton Fernet encryption engine configured with the application
+        encryption key or deterministic secret fallback.
+
+    Steps:
+        1. Return cached Fernet instance if already initialized.
+        2. Check for TOKEN_ENCRYPTION_KEY in settings.
+        3. If key is present and valid base64 urlsafe, initialize Fernet instance.
+        4. If key is absent or invalid, derive a deterministic fallback key from LINKEDIN_CLIENT_SECRET.
+        5. Cache and return the Fernet cipher suite instance.
+
+    Returns:
+        Fernet: Configured Fernet cryptographic instance.
+
+    Raises:
+        None.
+    """
     global _fernet_instance
     if _fernet_instance is not None:
         return _fernet_instance
@@ -35,8 +53,21 @@ def get_fernet() -> Fernet:
 def encrypt_token(plain_token: str | None) -> str | None:
     """Encrypt a plaintext OAuth token for storage at rest.
 
+    Purpose:
+        Protects sensitive OAuth access and refresh tokens at rest using AES-128-CBC
+        symmetric encryption via Fernet.
+
+    Steps:
+        1. Return None immediately if token is empty or whitespace.
+        2. Retrieve active Fernet instance via get_fernet().
+        3. Encrypt UTF-8 encoded token bytes.
+        4. Decode resulting ciphertext bytes to a UTF-8 string and return.
+
     Returns:
         str | None: Fernet-encrypted ciphertext string, or None if token is empty.
+
+    Raises:
+        None.
     """
     if not plain_token or not str(plain_token).strip():
         return None
@@ -47,8 +78,21 @@ def encrypt_token(plain_token: str | None) -> str | None:
 def decrypt_token(cipher_or_plain: str | None) -> str | None:
     """Decrypt a stored OAuth token, with fallback for unencrypted legacy rows.
 
+    Purpose:
+        Decrypts ciphertext tokens retrieved from storage, gracefully falling back
+        to plaintext for legacy unencrypted database rows during migration.
+
+    Steps:
+        1. Return None immediately if input string is empty or whitespace.
+        2. Retrieve active Fernet instance via get_fernet().
+        3. Attempt to decrypt ciphertext bytes into plaintext string.
+        4. If decryption fails (InvalidToken), log a warning and return original plaintext.
+
     Returns:
         str | None: Decrypted plaintext token string, or None if input is empty.
+
+    Raises:
+        None.
     """
     if not cipher_or_plain or not str(cipher_or_plain).strip():
         return None

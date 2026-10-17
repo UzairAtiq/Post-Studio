@@ -1005,6 +1005,21 @@ def get_linkedin_token_record(token_id: str = "default") -> dict[str, Any] | Non
     Purpose:
         Fetches credentials from PostgreSQL, SQLite, environment, or backup file
         and decrypts tokens stored at rest.
+
+    Steps:
+        1. Initialize storage tables if needed.
+        2. Query PostgreSQL if reachable.
+        3. Query SQLite if PostgreSQL unavailable or misses.
+        4. Fall back to LINKEDIN_ACCESS_TOKEN environment variable.
+        5. Fall back to local .linkedin_token backup file.
+        6. Decrypt stored access and refresh tokens using Fernet.
+        7. Return credentials dictionary or None if absent.
+
+    Returns:
+        dict[str, Any] | None: Stored token data dictionary or None if not found.
+
+    Raises:
+        None.
     """
     init_storage()
     conn = get_postgres_connection()
@@ -1272,6 +1287,20 @@ def create_session(sub: str, lifetime_days: int = 14) -> str:
     Purpose:
         Generates an unguessable session token and stores the session in
         PostgreSQL with SQLite fallback.
+
+    Steps:
+        1. Initialize storage tables if needed.
+        2. Generate 32-byte cryptographically secure random session_id.
+        3. Calculate expiration timestamp from UTC now + lifetime_days.
+        4. Attempt insert into PostgreSQL sessions table.
+        5. If PostgreSQL fails or is inactive, insert into SQLite sessions table.
+        6. Return the session_id string.
+
+    Returns:
+        str: Cryptographically secure random session identifier.
+
+    Raises:
+        None.
     """
     init_storage()
     session_id = secrets.token_urlsafe(32)
@@ -1310,8 +1339,23 @@ def create_session(sub: str, lifetime_days: int = 14) -> str:
 def get_session_sub(session_id: str | None) -> str | None:
     """Retrieve user sub from session_id, ensuring the session is valid and active.
 
+    Purpose:
+        Resolves the authenticated user's person URN (sub) from their session ID,
+        verifying that the session has not expired.
+
+    Steps:
+        1. Return None if session_id is empty or whitespace.
+        2. Query PostgreSQL sessions table for matching session_id.
+        3. If found, verify current UTC time does not exceed expires_at timestamp.
+        4. If expired, delete session and return None.
+        5. If PostgreSQL misses or fails, query SQLite sessions table with same expiry check.
+        6. Return the user sub string if valid, or None if invalid or expired.
+
     Returns:
         str | None: Authenticated user sub, or None if invalid or expired.
+
+    Raises:
+        None.
     """
     if not session_id or not session_id.strip():
         return None
@@ -1367,7 +1411,23 @@ def get_session_sub(session_id: str | None) -> str | None:
 
 
 def delete_session(session_id: str | None) -> bool:
-    """Delete a session record by session_id."""
+    """Delete a session record by session_id across storage backends.
+
+    Purpose:
+        Revokes an active session by removing its record from PostgreSQL and SQLite.
+
+    Steps:
+        1. Return False if session_id is empty or whitespace.
+        2. Attempt DELETE from PostgreSQL sessions table.
+        3. Attempt DELETE from SQLite sessions table.
+        4. Return True if a record was removed from either backend, else False.
+
+    Returns:
+        bool: True if session was found and deleted, False otherwise.
+
+    Raises:
+        None.
+    """
     if not session_id or not session_id.strip():
         return False
 

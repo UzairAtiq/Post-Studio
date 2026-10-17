@@ -30,7 +30,23 @@ router = APIRouter(tags=["Authentication"])
 
 
 def is_secure_connection(request: Request) -> bool:
-    """Check if the incoming request uses HTTPS directly or via reverse proxy."""
+    """Check if the incoming request uses HTTPS directly or via reverse proxy.
+
+    Purpose:
+        Determines if secure cookie transport flags should be enabled based on
+        the direct scheme or X-Forwarded-Proto header.
+
+    Steps:
+        1. Inspect URL scheme on request object.
+        2. Check X-Forwarded-Proto header for 'https' from reverse proxies.
+        3. Return True if either is 'https', False otherwise.
+
+    Returns:
+        bool: True if connection is secure, False otherwise.
+
+    Raises:
+        None.
+    """
     return request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
 
 
@@ -42,6 +58,20 @@ def linkedin_login(request: Request) -> RedirectResponse:
     Purpose:
         Builds the LinkedIn OAuth authorization URL with state validation, sets
         a temporary secure state cookie, and redirects user to LinkedIn.
+
+    Steps:
+        1. Validate presence of LINKEDIN_CLIENT_ID in settings.
+        2. Resolve effective callback URL using dynamic request headers.
+        3. Generate 32-byte cryptographically secure random OAuth state string.
+        4. Construct LinkedIn OAuth authorization URL with required scopes.
+        5. Set short-lived HttpOnly linkedin_oauth_state cookie on response.
+        6. Return 302 redirect response pointing to LinkedIn.
+
+    Returns:
+        RedirectResponse: 302 redirect to LinkedIn consent dialog.
+
+    Raises:
+        HTTPException: 500 Internal Server Error if client ID is unconfigured.
     """
     if not LINKEDIN_CLIENT_ID:
         raise HTTPException(
@@ -87,6 +117,21 @@ async def linkedin_callback(
     Purpose:
         Validates the OAuth state cookie, exchanges the authorization code for
         access and refresh tokens, persists credentials, and renders the result.
+
+    Steps:
+        1. Validate CSRF state query parameter matches linkedin_oauth_state cookie.
+        2. Handle errors returned by LinkedIn consent screen.
+        3. Exchange authorization code for access and refresh tokens.
+        4. Query /v2/userinfo to resolve user name, profile data, and person URN.
+        5. Persist credentials in storage under person URN and default token ID.
+        6. Create server-side session and set secure session_id cookie.
+        7. Clear temporary state cookie and return HTML response.
+
+    Returns:
+        Response: HTML response rendering success template or error page.
+
+    Raises:
+        None.
     """
     error_template = FRONTEND_DIR / "error.html"
 
@@ -260,7 +305,24 @@ async def linkedin_callback(
 @router.get("/linkedin/logout")
 @router.post("/linkedin/logout")
 def linkedin_logout(request: Request) -> Response:
-    """Clear session and log out user."""
+    """Clear session and log out user.
+
+    Purpose:
+        Revokes the active user session from server-side storage and deletes
+        the session cookie from the client browser.
+
+    Steps:
+        1. Extract session_id from request cookies.
+        2. Delete session record from storage if present.
+        3. Construct 302 redirect response pointing to root dashboard.
+        4. Clear session_id cookie on response and return.
+
+    Returns:
+        Response: 302 redirect to root dashboard with deleted session cookie.
+
+    Raises:
+        None.
+    """
     session_id = request.cookies.get("session_id")
     if session_id:
         delete_session(session_id)
@@ -272,7 +334,27 @@ def linkedin_logout(request: Request) -> Response:
 # linkedin token metadata endpoint
 @router.get("/linkedin/status")
 def linkedin_status(request: Request) -> dict[str, Any]:
-    """Retrieve current LinkedIn authentication state and token metadata."""
+    """Retrieve current LinkedIn authentication state and token metadata.
+
+    Purpose:
+        Provides the client with authentication status, masked token preview,
+        person URN, expiration timestamp, and refresh token availability.
+
+    Steps:
+        1. Extract session_id cookie and resolve active user person URN.
+        2. Query stored token record for user sub, falling back to default record.
+        3. If no record exists, return unauthenticated status dictionary.
+        4. Check token validity and expiration via get_valid_linkedin_access_token.
+        5. If token is expired and cannot refresh, return expired status dictionary.
+        6. Mask access token (showing first 8 and last 4 characters).
+        7. Return dictionary of token properties and profile identifiers.
+
+    Returns:
+        dict[str, Any]: Authentication status and masked token metadata.
+
+    Raises:
+        None.
+    """
     effective_uri = get_effective_redirect_uri(request)
     session_id = request.cookies.get("session_id")
     user_sub = get_session_sub(session_id) if session_id else None
@@ -324,7 +406,25 @@ def linkedin_status(request: Request) -> dict[str, Any]:
 # manual or programmatic token refresh endpoint
 @router.post("/linkedin/refresh")
 def refresh_token_endpoint(request: Request) -> dict[str, Any]:
-    """Trigger programmatic or manual renewal of LinkedIn access token."""
+    """Trigger programmatic or manual renewal of LinkedIn access token.
+
+    Purpose:
+        Uses the stored OAuth refresh token to request a new access token from
+        LinkedIn without requiring interactive user login.
+
+    Steps:
+        1. Extract session_id cookie and resolve active user person URN.
+        2. Invoke refresh_linkedin_access_token() against user or default credentials.
+        3. Check result for success.
+        4. If failed, raise HTTP 400 with failure explanation.
+        5. Return success status dictionary.
+
+    Returns:
+        dict[str, Any]: Dictionary confirming successful token refresh.
+
+    Raises:
+        HTTPException: 400 Bad Request if token refresh fails.
+    """
     session_id = request.cookies.get("session_id")
     user_sub = get_session_sub(session_id) if session_id else None
     token_id = user_sub or "default"

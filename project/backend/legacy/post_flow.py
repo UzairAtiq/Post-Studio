@@ -27,6 +27,22 @@ def run_legacy_post_flow(
     Purpose:
         Automates creation of a LinkedIn post on a given topic using Groq LLM,
         stores it with pending status, and dispatches an interactive approval request to Slack.
+
+    Steps:
+        1. Validate that a valid, active LinkedIn access token exists in storage for user or default.
+        2. If token is missing or expired, raise HTTP 401 Unauthorized.
+        3. Resolve the user's LinkedIn person URN.
+        4. Generate post content using Groq LLM based on the topic parameter.
+        5. Generate a unique post identifier.
+        6. Persist pending post record into storage with profile ID and token.
+        7. Send interactive Block Kit approval message to configured Slack channel.
+        8. Return confirmation dictionary with post ID, content, and delivery result.
+
+    Returns:
+        dict[str, Any]: Summary dictionary with post_id, status, generated content, and Slack delivery info.
+
+    Raises:
+        HTTPException: 401 Unauthorized if LinkedIn is not authenticated.
     """
     token_id = user_sub or "default"
     token = get_valid_linkedin_access_token(token_id=token_id)
