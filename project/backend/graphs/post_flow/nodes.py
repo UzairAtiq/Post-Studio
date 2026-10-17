@@ -209,7 +209,7 @@ async def request_approval_node(
         if isinstance(raw_decision, dict):
             raw_decision = raw_decision.get("action_id") or raw_decision.get("decision") or raw_decision.get("action")
         norm_decision = str(raw_decision or state.get("decision", "")).strip().lower()
-        if norm_decision in ("approve_linkedin_post", "approve", "yes", "approved"):
+        if norm_decision in ("approve_linkedin_post", "approve_post", "approve", "yes", "approved"):
             clean_decision = "approved"
         else:
             clean_decision = "discarded"

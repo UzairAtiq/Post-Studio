@@ -233,7 +233,7 @@ def approve_or_discard_post_directly(post_id: str, action: str = "approve") -> d
     """Directly execute approval or discard decision without Slack interaction."""
     clean_id = post_id.strip()
     clean_action = action.strip().lower()
-    if clean_action in ("approve", "yes", "approved", "approve_linkedin_post"):
+    if clean_action in ("approve", "yes", "approved", "approve_linkedin_post", "approve_post"):
         return publish_post_service(post_id=clean_id)
     return discard_post_service(post_id=clean_id)
 

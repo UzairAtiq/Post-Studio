@@ -67,7 +67,7 @@ def route_after_decision(state: PostFlowState) -> str:
         return END
 
     decision = (state.get("decision") or "").strip().lower()
-    if decision in ("approved", "approve_linkedin_post"):
+    if decision in ("approved", "approve_linkedin_post", "approve_post", "approve", "yes"):
         return "publish"
     return "discard"
 

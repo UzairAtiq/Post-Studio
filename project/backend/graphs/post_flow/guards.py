@@ -56,7 +56,7 @@ def is_flow_complete(state: PostFlowState | Mapping[str, Any]) -> bool:
 
     # Rule 2: If status is published, decision must be approved and LinkedIn response stored
     if norm_status in (PostStatus.PUBLISHED.value, "published"):
-        decision_approved = norm_decision in ("approved", "approve_linkedin_post")
+        decision_approved = norm_decision in ("approved", "approve_linkedin_post", "approve_post", "approve", "yes")
         if not decision_approved:
             logger.warning(f"Guard check failed for post_id={post_id}: published without approved decision.")
             return False
@@ -78,7 +78,7 @@ def is_flow_complete(state: PostFlowState | Mapping[str, Any]) -> bool:
 
     # Rule 3: If status is discarded, decision must be stored as discarded or rejected
     if norm_status in (PostStatus.DISCARDED.value, "discarded"):
-        decision_discarded = norm_decision in ("discarded", "rejected", "discard_linkedin_post")
+        decision_discarded = norm_decision in ("discarded", "rejected", "discard_linkedin_post", "reject_post", "discard", "no")
         if not decision_discarded:
             logger.warning(f"Guard check failed for post_id={post_id}: discarded without stored discard decision.")
             return False
@@ -117,4 +117,4 @@ def can_publish_post(state: PostFlowState | Mapping[str, Any]) -> bool:
         logger.warning(f"can_publish_post blocked for post_id={post_id}: already published.")
         return False
 
-    return decision in ("approved", "approve_linkedin_post")
+    return decision in ("approved", "approve_linkedin_post", "approve_post", "approve", "yes")
