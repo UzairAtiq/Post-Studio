@@ -13,7 +13,10 @@ from config.settings import (
     LINKEDIN_CLIENT_SECRET,
 )
 from services.storage import (
+    create_session,
+    delete_session,
     get_linkedin_token_record,
+    get_session_sub,
     refresh_linkedin_access_token,
     save_linkedin_token,
 )
@@ -213,6 +216,9 @@ async def linkedin_callback(
 
     logger.info(f"successfully authenticated LinkedIn user: {user_name} ({person_urn})")
 
+    # Create server-side session mapping session_id to user sub (person_urn)
+    session_id = create_session(sub=person_urn)
+
     callback_template = FRONTEND_DIR / "callback.html"
     if callback_template.exists():
         html = callback_template.read_text(encoding="utf-8")
@@ -221,11 +227,32 @@ async def linkedin_callback(
         html = html.replace("{{EXPIRES_IN}}", str(expires_in or "N/A"))
         html = html.replace("{{REFRESH_STATUS}}", "Available (Auto-refresh on)" if refresh_token else "Standard Token")
         resp = HTMLResponse(content=html)
-        resp.delete_cookie("linkedin_oauth_state", path="/")
-        return resp
+    else:
+        resp = HTMLResponse(content=f"<h2>LinkedIn Connected! User: {user_name}</h2><a href='/'>Dashboard</a>")
 
-    resp = HTMLResponse(content=f"<h2>LinkedIn Connected! User: {user_name}</h2><a href='/'>Dashboard</a>")
     resp.delete_cookie("linkedin_oauth_state", path="/")
+    resp.set_cookie(
+        key="session_id",
+        value=session_id,
+        httponly=True,
+        secure=is_secure_connection(request),
+        samesite="lax",
+        max_age=14 * 86400,
+        path="/",
+    )
+    return resp
+
+
+# logout endpoint to revoke session
+@router.get("/linkedin/logout")
+@router.post("/linkedin/logout")
+def linkedin_logout(request: Request) -> Response:
+    """Clear session and log out user."""
+    session_id = request.cookies.get("session_id")
+    if session_id:
+        delete_session(session_id)
+    resp = RedirectResponse(url="/", status_code=status.HTTP_302_FOUND)
+    resp.delete_cookie("session_id", path="/")
     return resp
 
 

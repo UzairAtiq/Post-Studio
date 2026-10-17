@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import secrets
 import sqlite3
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -247,6 +248,16 @@ def init_database_tables() -> None:
                         );
                         """
                     )
+                    cur.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS sessions (
+                            session_id VARCHAR(100) PRIMARY KEY,
+                            sub VARCHAR(100) NOT NULL,
+                            created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+                            expires_at TIMESTAMP WITH TIME ZONE NOT NULL
+                        );
+                        """
+                    )
             return
         except Exception as err:
             logger.warning(f"Failed to initialize PostgreSQL tables: {err}. Falling back to SQLite.")
@@ -281,6 +292,16 @@ def init_database_tables() -> None:
                 linkedin_response TEXT,
                 response_url TEXT,
                 decision_action TEXT
+            );
+            """
+        )
+        sqlite_conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS sessions (
+                session_id TEXT PRIMARY KEY,
+                sub TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL
             );
             """
         )
@@ -1230,3 +1251,138 @@ def get_stored_person_urn(token_id: str = "default") -> str | None:
     if record and record.get("person_urn"):
         return record["person_urn"]
     return None
+
+
+# ---------------------------------------------------------------------------
+# Session Operations
+# ---------------------------------------------------------------------------
+
+def create_session(sub: str, lifetime_days: int = 14) -> str:
+    """Create a new session record mapping a secure session_id to user sub.
+
+    Purpose:
+        Generates an unguessable session token and stores the session in
+        PostgreSQL with SQLite fallback.
+    """
+    init_storage()
+    session_id = secrets.token_urlsafe(32)
+    now_utc = datetime.now(timezone.utc)
+    expires_at = now_utc + timedelta(days=lifetime_days)
+
+    conn = get_postgres_connection()
+    if conn:
+        try:
+            with conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        INSERT INTO sessions (session_id, sub, created_at, expires_at)
+                        VALUES (%s, %s, %s, %s);
+                        """,
+                        (session_id, sub, now_utc, expires_at),
+                    )
+            return session_id
+        except Exception as err:
+            logger.warning(f"failed to save session to postgres: {err}")
+
+    with get_sqlite_connection() as sqlite_conn:
+        sqlite_conn.execute(
+            """
+            INSERT INTO sessions (session_id, sub, created_at, expires_at)
+            VALUES (?, ?, ?, ?);
+            """,
+            (session_id, sub, now_utc.isoformat(), expires_at.isoformat()),
+        )
+        sqlite_conn.commit()
+
+    return session_id
+
+
+def get_session_sub(session_id: str | None) -> str | None:
+    """Retrieve user sub from session_id, ensuring the session is valid and active.
+
+    Returns:
+        str | None: Authenticated user sub, or None if invalid or expired.
+    """
+    if not session_id or not session_id.strip():
+        return None
+
+    clean_id = session_id.strip()
+    init_storage()
+    now_utc = datetime.now(timezone.utc)
+
+    conn = get_postgres_connection()
+    if conn:
+        try:
+            with conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT sub, expires_at FROM sessions WHERE session_id = %s;",
+                        (clean_id,),
+                    )
+                    row = cur.fetchone()
+                    if row:
+                        sub, exp = row[0], row[1]
+                        if exp:
+                            if exp.tzinfo is None:
+                                exp = exp.replace(tzinfo=timezone.utc)
+                            if now_utc > exp:
+                                delete_session(clean_id)
+                                return None
+                        return sub
+        except Exception as err:
+            logger.warning(f"failed checking session in postgres: {err}")
+
+    try:
+        with get_sqlite_connection() as sqlite_conn:
+            cur = sqlite_conn.cursor()
+            cur.execute(
+                "SELECT sub, expires_at FROM sessions WHERE session_id = ?;",
+                (clean_id,),
+            )
+            row = cur.fetchone()
+            if row:
+                sub, exp_raw = row[0], row[1]
+                if exp_raw:
+                    exp = datetime.fromisoformat(exp_raw)
+                    if exp.tzinfo is None:
+                        exp = exp.replace(tzinfo=timezone.utc)
+                    if now_utc > exp:
+                        delete_session(clean_id)
+                        return None
+                return sub
+    except Exception as err:
+        logger.warning(f"failed checking session in sqlite: {err}")
+
+    return None
+
+
+def delete_session(session_id: str | None) -> bool:
+    """Delete a session record by session_id."""
+    if not session_id or not session_id.strip():
+        return False
+
+    clean_id = session_id.strip()
+    init_storage()
+    deleted = False
+
+    conn = get_postgres_connection()
+    if conn:
+        try:
+            with conn:
+                with conn.cursor() as cur:
+                    cur.execute("DELETE FROM sessions WHERE session_id = %s;", (clean_id,))
+                    deleted = cur.rowcount > 0
+        except Exception as err:
+            logger.warning(f"failed deleting session in postgres: {err}")
+
+    try:
+        with get_sqlite_connection() as sqlite_conn:
+            cur = sqlite_conn.execute("DELETE FROM sessions WHERE session_id = ?;", (clean_id,))
+            sqlite_conn.commit()
+            if cur.rowcount > 0:
+                deleted = True
+    except Exception as err:
+        logger.warning(f"failed deleting session in sqlite: {err}")
+
+    return deleted
