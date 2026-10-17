@@ -21,10 +21,11 @@ project/backend/routers/
 
 | Endpoint / Function | Method | Path | Request Inputs | Response Output | Description & Flow |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| [`linkedin_login`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/routers/auth.py#L30) | `GET` | `/linkedin/login` | None | `RedirectResponse` (302) | Generates random CSRF `state`, resolves dynamic `redirect_uri`, and redirects browser to LinkedIn's authorization endpoint with required scopes (`openid profile w_member_social email`). |
-| [`linkedin_callback`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/routers/auth.py#L72) | `GET` | `/linkedin/callback`<br>`/callback` | Query: `code`, `state`, `error`, `error_description` | `HTMLResponse` | Exchanges auth code for access & refresh tokens, resolves author person URN (`/v2/userinfo`), persists credentials via `services.storage.save_linkedin_token`, and renders `callback.html`. Handles duplicate code reloads gracefully. |
-| [`linkedin_status`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/routers/auth.py#L233) | `GET` | `/linkedin/status` | None | `dict[str, Any]` | Reads stored token record, returns authentication state, masked token preview (`xxxx...yyyy`), expiration date, and refresh token availability. |
-| [`refresh_token_endpoint`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/routers/auth.py#L279) | `POST` | `/linkedin/refresh` | None | `dict[str, Any]` | Invokes `services.storage.refresh_linkedin_access_token` using stored refresh token without requiring re-login. Raises 400 Bad Request on failure. |
+| [`linkedin_login`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/routers/auth.py) | `GET` | `/linkedin/login` | None | `RedirectResponse` (302) | Generates cryptographically secure 32-byte CSRF `state`, sets temporary `HttpOnly` state cookie (`linkedin_oauth_state`), and redirects user to LinkedIn's authorization endpoint with requested scopes (`openid profile w_member_social email`). |
+| [`linkedin_callback`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/routers/auth.py) | `GET` | `/linkedin/callback`<br>`/callback` | Query: `code`, `state`, `error`, `error_description` | `HTMLResponse` | Verifies `state` query param matches `linkedin_oauth_state` cookie, clears state cookie, exchanges auth code for tokens, resolves author person URN (`/v2/userinfo`), persists credentials via `services.storage.save_linkedin_token`, creates a server-side session, and sets an `HttpOnly` `session_id` cookie before rendering `callback.html`. |
+| [`linkedin_logout`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/routers/auth.py) | `GET`, `POST` | `/linkedin/logout` | Cookie: `session_id` | `RedirectResponse` (302) | Revokes user session from PostgreSQL/SQLite, clears `session_id` cookie on response, and redirects to dashboard. |
+| [`linkedin_status`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/routers/auth.py) | `GET` | `/linkedin/status` | Cookie: `session_id` (optional) | `dict[str, Any]` | Reads active user session from cookie, queries token record for that user (with fallback to default), verifies expiration, and returns masked token preview, person URN, and `expired` status flag. |
+| [`refresh_token_endpoint`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/routers/auth.py) | `POST` | `/linkedin/refresh` | Cookie: `session_id` (optional) | `dict[str, Any]` | Invokes `services.storage.refresh_linkedin_access_token` for the authenticated user session (or default) using stored refresh token without requiring re-login. Raises 400 Bad Request on failure. |
 
 ---
 
@@ -97,10 +98,20 @@ flowchart TD
    - Computes expected signature `v0={hmac_sha256(secret, "v0:{timestamp}:{raw_body}")}`.
    - Enforces timestamp freshness within **300 seconds** (5 minutes) to defeat replay attacks.
    - Uses constant-time string comparison (`hmac.compare_digest`) to prevent timing side-channels.
-2. **LinkedIn OAuth CSRF Prevention**:
-   - Generates a unique UUID `state` parameter on each `/linkedin/login` redirect.
+2. **LinkedIn OAuth CSRF Prevention & State Cookie Validation**:
+   - Generates a 32-byte cryptographically secure random `state` parameter (`secrets.token_urlsafe(32)`) on each `/linkedin/login` redirect.
+   - Sets a short-lived `linkedin_oauth_state` cookie (`HttpOnly=True`, `SameSite=Lax`, `Secure` over HTTPS, `max_age=600`).
+   - Callback strictly validates that incoming query `state` exactly matches the cookie, clearing the cookie and rejecting mismatches with HTTP 403 Forbidden.
    - Uses dynamic host detection (`get_effective_redirect_uri`) to ensure valid callback URLs behind reverse proxies (Render, ngrok).
-3. **SPA Prefix Isolation**:
+3. **Session Management & Cookie Isolation**:
+   - Upon successful OAuth consent, generates an unguessable 32-byte `session_id`.
+   - Persists the session in the `sessions` table mapping `session_id` -> user's `person_urn` with expiration (`expires_at`).
+   - Issues an `HttpOnly`, `SameSite="Lax"`, `Secure` (over HTTPS) `session_id` cookie to the browser.
+   - The user's internal `sub` or `person_urn` is never stored in client-side cookies or accessible via client JavaScript.
+   - `/linkedin/logout` deletes the server-side session and destroys the browser cookie.
+4. **Token Encryption at Rest**:
+   - OAuth access and refresh tokens are encrypted using AES-128-CBC symmetric encryption via Fernet (`services.crypto.encrypt_token`) before persisting to database tables (`linkedin_tokens` and `posts.access_token`).
+5. **SPA Prefix Isolation**:
    - `frontend.py` prevents static routing fallbacks from masking non-existent API routes by rejecting reserved prefixes with an explicit 404 Not Found response.
 
 ---

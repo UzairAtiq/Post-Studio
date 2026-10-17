@@ -8,6 +8,7 @@ The services layer encapsulates business logic, persistence abstraction, and ext
 project/backend/services/
 ├── __init__.py           # Package marker and services layer docstring
 ├── approval.py           # Human-in-the-loop decision recording, idempotent publishing, and polling
+├── crypto.py             # Token encryption and decryption using Fernet cipher suite
 ├── groq_service.py       # Groq LLM prompt construction and post generation (raises exceptions)
 ├── linkedin_service.py   # LinkedIn member URN resolution and UGC publishing (returns result dict)
 ├── post_graph.py         # LangGraph post flow start and resume interface
@@ -55,7 +56,13 @@ project/backend/services/
 | [`get_linkedin_token_record`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/services/storage.py#L973) | [`storage.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/services/storage.py) | Retrieves raw token record across active storage tiers | [`routers/auth.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/routers/auth.py), [`storage.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/services/storage.py) internal operations |
 | [`refresh_linkedin_access_token`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/services/storage.py#L1088) | [`storage.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/services/storage.py) | Renews access token using stored refresh token | [`routers/auth.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/routers/auth.py), [`storage.get_valid_linkedin_access_token`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/services/storage.py#L1165) |
 | [`get_valid_linkedin_access_token`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/services/storage.py#L1165) | [`storage.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/services/storage.py) | Returns valid access token, auto-refreshing if within 5m of expiry | [`config/settings.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/config/settings.py), [`services/approval.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/services/approval.py), [`routers/posts.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/routers/posts.py) |
-| [`get_stored_person_urn`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/services/storage.py#L1213) | [`storage.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/services/storage.py) | Retrieves cached LinkedIn author URN | [`config/settings.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/config/settings.py), [`services/approval.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/services/approval.py) |
+| [`get_stored_person_urn`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/services/storage.py) | [`storage.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/services/storage.py) | Retrieves cached LinkedIn author URN | [`config/settings.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/config/settings.py), [`services/approval.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/services/approval.py) |
+| [`create_session`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/services/storage.py) | [`storage.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/services/storage.py) | Creates secure server-side session mapping random `session_id` to user `sub` | [`routers/auth.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/routers/auth.py) |
+| [`get_session_sub`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/services/storage.py) | [`storage.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/services/storage.py) | Resolves user `sub` from `session_id`, verifying active expiration timestamp | [`routers/auth.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/routers/auth.py), [`routers/posts.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/routers/posts.py) |
+| [`delete_session`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/services/storage.py) | [`storage.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/services/storage.py) | Deletes server-side session from PostgreSQL and SQLite | [`routers/auth.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/routers/auth.py) |
+| [`get_fernet`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/services/crypto.py) | [`crypto.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/services/crypto.py) | Returns singleton Fernet cipher instance configured with app key or fallback | [`services/crypto.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/services/crypto.py) |
+| [`encrypt_token`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/services/crypto.py) | [`crypto.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/services/crypto.py) | Encrypts plaintext OAuth tokens for secure persistence at rest | [`services/storage.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/services/storage.py) |
+| [`decrypt_token`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/services/crypto.py) | [`crypto.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/services/crypto.py) | Decrypts ciphertext tokens with migration fallback for legacy plaintext rows | [`services/storage.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/services/storage.py) |
 
 ---
 
@@ -82,6 +89,7 @@ flowchart TD
         LISvc["services/linkedin_service.py"]
         GroqSvc["services/groq_service.py"]
         StorageSvc["services/storage.py"]
+        CryptoSvc["services/crypto.py"]
     end
 
     Routers --> PostGraph
@@ -98,12 +106,15 @@ flowchart TD
     ApprovalSvc --> SlackSvc
     ApprovalSvc --> LISvc
     ApprovalSvc --> StorageSvc
+
+    StorageSvc --> CryptoSvc
 ```
 
 1. **Allowed Import Direction:**
    - `routers` and `mcp_servers` may import from `services` (`approval`, `storage`, `groq_service`, `linkedin_service`, `slack_service`).
    - `services/approval` may import from `services/slack_service`, `services/linkedin_service`, and `services/storage`.
-   - `services/slack_service`, `services/linkedin_service`, `services/groq_service`, and `services/storage` are leaf services and must not import from `services/approval`.
+   - `services/storage` may import from `services/crypto`.
+   - `services/slack_service`, `services/linkedin_service`, `services/groq_service`, `services/crypto`, and `services/storage` are leaf services and must not import from `services/approval`.
 2. **Forbidden Imports:**
    - **Services must NEVER import from routers, `main.py`, or `mcp_servers`.**
    - No circular imports between sibling services.
@@ -122,6 +133,7 @@ Each service adheres to an intentional, consistent error style:
 | [`slack_service.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/services/slack_service.py) | **Mixed (Dict & Bool)** | `send_approval_request` catches network failures and returns `{'success': False, ...}`; raises `ValueError` if `SLACK_WEBHOOK_URL` is unset. `update_slack_message` returns a boolean (`True` on 200 OK, `False` on failure). |
 | [`approval.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/services/approval.py) | **Returns Result Dict** | `record_slack_decision`, `execute_post_decision`, and `wait_for_decision` return structured outcome dictionaries (`{'success': bool, 'status': str, ...}`). |
 | [`storage.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/services/storage.py) | **Multi-Tier Fallback** | Handles database connection drops gracefully by falling back (PostgreSQL -> SQLite -> `posts.json`). CRUD operations return `dict`, `list`, or `bool` (`None` if record not found). |
+| [`crypto.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/services/crypto.py) | **Graceful Migration Fallback** | Encrypts tokens using Fernet; catches `InvalidToken` and unexpected errors during decryption to transparently return plaintext for legacy rows while logging warnings. |
 
 ---
 

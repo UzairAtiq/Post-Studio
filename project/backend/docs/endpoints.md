@@ -11,10 +11,11 @@ Overview of all endpoints, MCP tools, and services exposed by the LinkedIn Post 
 | `GET` | `/health` | [`main.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/main.py) | Returns service health status, active execution flow mode (`graph` or `legacy`), active database backend, and LinkedIn authentication state. |
 | `GET` | `/` | [`routers/frontend.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/routers/frontend.py) | Serves root dashboard HTML or built React application. |
 | `GET` | `/{full_path:path}` | [`routers/frontend.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/routers/frontend.py) | SPA catch-all route handler serving `index.html` while rejecting reserved API prefixes with 404. |
-| `GET` | `/linkedin/login` | [`routers/auth.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/routers/auth.py) | Redirects user's browser to LinkedIn OAuth authorization endpoint with CSRF state token. |
-| `GET` | `/linkedin/callback` | [`routers/auth.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/routers/auth.py) | Exchanges authorization code for tokens, resolves profile/URN, and persists credentials. |
+| `GET` | `/linkedin/login` | [`routers/auth.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/routers/auth.py) | Redirects user to LinkedIn OAuth authorization endpoint with CSRF state token and sets temporary HttpOnly state cookie. |
+| `GET` | `/linkedin/callback` | [`routers/auth.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/routers/auth.py) | Validates state cookie, exchanges code for tokens, resolves profile/URN, encrypts credentials, creates session, and sets HttpOnly `session_id` cookie. |
 | `GET` | `/callback` | [`routers/auth.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/routers/auth.py) | Legacy redirect alias for `/linkedin/callback`. |
-| `GET` | `/linkedin/status` | [`routers/auth.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/routers/auth.py) | Returns authentication status, masked token preview, expiry time, and refresh token availability. |
+| `GET`, `POST` | `/linkedin/logout` | [`routers/auth.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/routers/auth.py) | Deletes user session from database, clears `session_id` cookie, and redirects to dashboard. |
+| `GET` | `/linkedin/status` | [`routers/auth.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/routers/auth.py) | Returns authentication status, masked token preview, expiry time, and expired state for active session user. |
 | `POST` | `/linkedin/refresh` | [`routers/auth.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/routers/auth.py) | Renews access token using stored refresh token without requiring re-authentication. |
 | `POST` | `/slack/interactions` | [`routers/slack.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/routers/slack.py) | Verifies Slack HMAC signature/timestamp, acknowledges within 3 seconds, and resumes graph or legacy flow in background based on `POST_FLOW_MODE`. |
 | `GET` | `/posts` | [`routers/posts.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/routers/posts.py) | Lists saved posts with optional status filter, or serves the frontend for direct browser visits. |
@@ -47,7 +48,8 @@ Overview of all endpoints, MCP tools, and services exposed by the LinkedIn Post 
 
 | File | Responsibility | Callers | Error Paradigm |
 | :--- | :--- | :--- | :--- |
-| [`services/storage.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/services/storage.py) | Single home for PostgreSQL, SQLite, and JSON fallback; post persistence; token lifecycle; schema init and status migrations. | `routers/auth.py`, `routers/posts.py`, `services/approval.py`, `mcp_servers/linkedin_server.py`, `main.py` | Graceful fallback across backends (PostgreSQL -> SQLite -> JSON); handles errors internally or returns None. |
+| [`services/storage.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/services/storage.py) | Single home for PostgreSQL, SQLite, and JSON fallback; post persistence; multi-user token and session lifecycle; schema init and status migrations. | `routers/auth.py`, `routers/posts.py`, `services/approval.py`, `mcp_servers/linkedin_server.py`, `main.py` | Graceful fallback across backends (PostgreSQL -> SQLite -> JSON); handles errors internally or returns None. |
+| [`services/crypto.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/services/crypto.py) | Symmetric encryption and decryption of OAuth tokens at rest using Fernet with migration fallback. | `services/storage.py` | Graceful fallback; catches decryption errors on legacy unencrypted rows and returns original plaintext while logging warnings. |
 | [`services/approval.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/services/approval.py) | Decision recording (`record_slack_decision`), idempotent decision execution (`execute_post_decision`), and 2-second polling loop (`wait_for_decision`). | `routers/slack.py`, `mcp_servers/linkedin_server.py` | Returns structured outcome dictionaries (`{'success': bool, ...}`). |
 | [`services/slack_service.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/services/slack_service.py) | Slack Block Kit message formatting (`build_approval_blocks`), webhook dispatch (`send_approval_request`), and single home for card replacement (`update_slack_message`). | `routers/posts.py`, `services/approval.py`, `mcp_servers/linkedin_server.py` | Webhook delivery returns result dict; card replacement returns boolean success; raises `ValueError` if webhook URL unconfigured. |
 | [`services/groq_service.py`](file:///Users/uzair/Developer/mcp-langraph-agent/project/backend/services/groq_service.py) | Groq LLM prompt construction and LinkedIn post content generation with Langfuse tracing. | `routers/posts.py`, `mcp_servers/linkedin_server.py` | **Raises exceptions**: Always raises `ValueError` or `RuntimeError` on config/API/rate-limit failures; never returns error dict. |
@@ -59,7 +61,7 @@ Overview of all endpoints, MCP tools, and services exposed by the LinkedIn Post 
 
 ### Post Generation Flow
 1. Client requests `POST /posts/generate?topic=...` or MCP invokes `generate_and_request_approval`.
-2. Validates that a non-expired LinkedIn OAuth access token and author person URN are available.
+2. Validates that a non-expired LinkedIn OAuth access token and author person URN are available for the active session user (or default).
 3. Generates high-impact post text via `groq_service.generate_linkedin_post_content`.
 4. Generates next post ID (`post_{count}_{hash}`) and saves post with `pending` status via `services.storage`.
 5. Sends Block Kit message with "Approve" and "Discard" buttons to Slack via `slack_service.send_approval_request`.
@@ -73,11 +75,13 @@ Overview of all endpoints, MCP tools, and services exposed by the LinkedIn Post 
 6. In background task, `execute_post_decision` checks idempotency. If not already finalized, it publishes to LinkedIn via `linkedin_service.publish_post_to_linkedin` (or marks discarded) and replaces Slack card via `slack_service.update_slack_message`.
 
 ### LinkedIn OAuth Flow
-1. User visits `/linkedin/login` and is redirected to LinkedIn authorization URL with requested scopes.
+1. User visits `/linkedin/login`. Backend generates cryptographically secure state parameter, sets short-lived `HttpOnly` `linkedin_oauth_state` cookie, and redirects user to LinkedIn authorization URL with scopes (`openid profile w_member_social email`).
 2. LinkedIn redirects user to `/linkedin/callback?code=...&state=...`.
-3. Backend exchanges code for access and refresh tokens, handling duplicate codes gracefully.
-4. Backend resolves person author URN via `/v2/userinfo` (or `/v2/me` fallback).
-5. Tokens and profile metadata are securely stored via `services.storage.save_linkedin_token`.
+3. Backend verifies that the incoming `state` parameter matches the `linkedin_oauth_state` cookie, defeating CSRF attacks, and clears the state cookie.
+4. Backend exchanges code for access and refresh tokens, handling duplicate code reloads gracefully.
+5. Backend resolves author person URN via `/v2/userinfo` (or `/v2/me` fallback).
+6. Tokens are encrypted at rest via Fernet and saved into `linkedin_tokens` under the user's `person_urn` (and `default` for fallback).
+7. Backend creates a server-side session mapping an unguessable `session_id` to user `person_urn` in the `sessions` table, sets an `HttpOnly`, `SameSite=Lax` `session_id` cookie, and renders the success confirmation.
 
 ### MCP Sync vs Async Approval Flow
 - **Async Mode (`wait_for_decision=False`):** `generate_and_request_approval` generates post, saves record, sends Slack notification, and immediately returns `status="pending_approval"` with post ID. The AI agent or caller can inspect post status later via `get_post_details`.
