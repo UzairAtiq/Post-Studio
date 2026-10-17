@@ -125,10 +125,11 @@ async def save_node(
 
     content = state.get("content", "")
     existing_post_id = state.get("post_id", "")
+    owner_sub = state.get("user_sub") or state.get("owner_sub", "")
     try:
         res = await _execute_mcp_tool(
             "save_post",
-            {"content": content, "post_id": existing_post_id},
+            {"content": content, "post_id": existing_post_id, "owner_sub": owner_sub or ""},
             config,
         )
         if not res.get("success"):

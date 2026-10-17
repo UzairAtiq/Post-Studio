@@ -221,7 +221,7 @@ def init_database_tables() -> None:
                     cur.execute(
                         """
                         CREATE TABLE IF NOT EXISTS linkedin_tokens (
-                            id VARCHAR(50) PRIMARY KEY,
+                            id VARCHAR(100) PRIMARY KEY,
                             access_token TEXT NOT NULL,
                             refresh_token TEXT,
                             expires_at TIMESTAMP WITH TIME ZONE,
@@ -229,7 +229,8 @@ def init_database_tables() -> None:
                             profile_id TEXT,
                             person_urn TEXT,
                             scope TEXT,
-                            updated_at TIMESTAMP WITH TIME ZONE
+                            updated_at TIMESTAMP WITH TIME ZONE,
+                            slack_user_id TEXT
                         );
                         """
                     )
@@ -245,7 +246,10 @@ def init_database_tables() -> None:
                             updated_at TIMESTAMP WITH TIME ZONE,
                             linkedin_response TEXT,
                             response_url TEXT,
-                            decision_action VARCHAR(50)
+                            decision_action VARCHAR(50),
+                            owner_sub TEXT,
+                            slack_channel TEXT,
+                            slack_ts TEXT
                         );
                         """
                     )
@@ -276,7 +280,8 @@ def init_database_tables() -> None:
                 profile_id TEXT,
                 person_urn TEXT,
                 scope TEXT,
-                updated_at TEXT
+                updated_at TEXT,
+                slack_user_id TEXT
             );
             """
         )
@@ -292,7 +297,10 @@ def init_database_tables() -> None:
                 updated_at TEXT,
                 linkedin_response TEXT,
                 response_url TEXT,
-                decision_action TEXT
+                decision_action TEXT,
+                owner_sub TEXT,
+                slack_channel TEXT,
+                slack_ts TEXT
             );
             """
         )
@@ -307,6 +315,52 @@ def init_database_tables() -> None:
             """
         )
         sqlite_conn.commit()
+
+
+def migrate_database_columns() -> None:
+    """Ensure newer columns exist across PostgreSQL and SQLite database backends.
+
+    Purpose:
+        Applies non-destructive schema migrations adding slack_user_id to linkedin_tokens
+        and owner_sub, slack_channel, slack_ts to posts.
+
+    Steps:
+        1. If PostgreSQL is reachable, run ALTER TABLE ADD COLUMN IF NOT EXISTS statements.
+        2. In SQLite, attempt ALTER TABLE ADD COLUMN for each column, ignoring duplicate column errors.
+
+    Returns:
+        None.
+
+    Raises:
+        None.
+    """
+    conn = get_postgres_connection()
+    if conn:
+        try:
+            with conn:
+                with conn.cursor() as cur:
+                    cur.execute("ALTER TABLE linkedin_tokens ADD COLUMN IF NOT EXISTS slack_user_id TEXT;")
+                    cur.execute("ALTER TABLE posts ADD COLUMN IF NOT EXISTS owner_sub TEXT;")
+                    cur.execute("ALTER TABLE posts ADD COLUMN IF NOT EXISTS slack_channel TEXT;")
+                    cur.execute("ALTER TABLE posts ADD COLUMN IF NOT EXISTS slack_ts TEXT;")
+        except Exception as err:
+            logger.warning(f"PostgreSQL column migration notice: {err}")
+
+    try:
+        with get_sqlite_connection() as sqlite_conn:
+            for table, col in [
+                ("linkedin_tokens", "slack_user_id"),
+                ("posts", "owner_sub"),
+                ("posts", "slack_channel"),
+                ("posts", "slack_ts"),
+            ]:
+                try:
+                    sqlite_conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} TEXT;")
+                except Exception:
+                    pass
+            sqlite_conn.commit()
+    except Exception as err:
+        logger.warning(f"SQLite column migration notice: {err}")
 
 
 def migrate_legacy_rejected_status() -> None:
@@ -363,7 +417,8 @@ def init_storage() -> None:
     Steps:
         1. Run init_database_tables to prepare relational tables.
         2. Ensure JSON storage directory and file exist.
-        3. Run migrate_legacy_rejected_status to unify rejection statuses to 'discarded'.
+        3. Run migrate_database_columns to add newer columns to existing tables.
+        4. Run migrate_legacy_rejected_status to unify rejection statuses to 'discarded'.
 
     Returns:
         None.
@@ -373,6 +428,7 @@ def init_storage() -> None:
     """
     init_database_tables()
     _ensure_json_file()
+    migrate_database_columns()
     migrate_legacy_rejected_status()
 
 
@@ -414,11 +470,15 @@ def save_post_record(
     profile_id: str,
     access_token: str,
     status: str | PostStatus = PostStatus.PENDING,
+    owner_sub: str | None = None,
+    slack_channel: str | None = None,
+    slack_ts: str | None = None,
 ) -> dict[str, Any]:
     """Persist a new post record across available storage backends with fallback.
 
     Purpose:
-        Saves post record into PostgreSQL, falling back to SQLite, then JSON file.
+        Saves post record into PostgreSQL, falling back to SQLite, then JSON file,
+        preserving user ownership and Slack message references.
 
     Steps:
         1. Initialize storage tables if needed.
@@ -437,6 +497,7 @@ def save_post_record(
     init_storage()
     now_iso = datetime.now(timezone.utc).isoformat()
     status_str = status.value if isinstance(status, PostStatus) else str(status)
+    resolved_owner = owner_sub or profile_id
 
     record = {
         "post_id": post_id,
@@ -449,6 +510,9 @@ def save_post_record(
         "linkedin_response": None,
         "response_url": None,
         "decision_action": None,
+        "owner_sub": resolved_owner,
+        "slack_channel": slack_channel,
+        "slack_ts": slack_ts,
     }
 
     enc_access_token = encrypt_token(access_token) or access_token
@@ -463,9 +527,10 @@ def save_post_record(
                         """
                         INSERT INTO posts (
                             post_id, content, profile_id, access_token, status,
-                            created_at, updated_at, linkedin_response, response_url, decision_action
+                            created_at, updated_at, linkedin_response, response_url, decision_action,
+                            owner_sub, slack_channel, slack_ts
                         )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (post_id) DO UPDATE SET
                             content = EXCLUDED.content,
                             profile_id = EXCLUDED.profile_id,
@@ -474,7 +539,10 @@ def save_post_record(
                             updated_at = EXCLUDED.updated_at,
                             linkedin_response = EXCLUDED.linkedin_response,
                             response_url = EXCLUDED.response_url,
-                            decision_action = EXCLUDED.decision_action;
+                            decision_action = EXCLUDED.decision_action,
+                            owner_sub = COALESCE(EXCLUDED.owner_sub, posts.owner_sub),
+                            slack_channel = COALESCE(EXCLUDED.slack_channel, posts.slack_channel),
+                            slack_ts = COALESCE(EXCLUDED.slack_ts, posts.slack_ts);
                         """,
                         (
                             post_id,
@@ -487,6 +555,9 @@ def save_post_record(
                             None,
                             None,
                             None,
+                            resolved_owner,
+                            slack_channel,
+                            slack_ts,
                         ),
                     )
             return record
@@ -500,9 +571,10 @@ def save_post_record(
                 """
                 INSERT INTO posts (
                     post_id, content, profile_id, access_token, status,
-                    created_at, updated_at, linkedin_response, response_url, decision_action
+                    created_at, updated_at, linkedin_response, response_url, decision_action,
+                    owner_sub, slack_channel, slack_ts
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(post_id) DO UPDATE SET
                     content = excluded.content,
                     profile_id = excluded.profile_id,
@@ -511,7 +583,10 @@ def save_post_record(
                     updated_at = excluded.updated_at,
                     linkedin_response = excluded.linkedin_response,
                     response_url = excluded.response_url,
-                    decision_action = excluded.decision_action;
+                    decision_action = excluded.decision_action,
+                    owner_sub = COALESCE(excluded.owner_sub, posts.owner_sub),
+                    slack_channel = COALESCE(excluded.slack_channel, posts.slack_channel),
+                    slack_ts = COALESCE(excluded.slack_ts, posts.slack_ts);
                 """,
                 (
                     post_id,
@@ -524,6 +599,9 @@ def save_post_record(
                     None,
                     None,
                     None,
+                    resolved_owner,
+                    slack_channel,
+                    slack_ts,
                 ),
             )
             sqlite_conn.commit()
@@ -566,7 +644,8 @@ def get_post_by_id(post_id: str) -> dict[str, Any] | None:
                     cur.execute(
                         """
                         SELECT post_id, content, profile_id, access_token, status,
-                               created_at, updated_at, linkedin_response, response_url, decision_action
+                               created_at, updated_at, linkedin_response, response_url, decision_action,
+                               owner_sub, slack_channel, slack_ts
                         FROM posts
                         WHERE post_id = %s;
                         """,
@@ -586,6 +665,9 @@ def get_post_by_id(post_id: str) -> dict[str, Any] | None:
                             "linkedin_response": parsed_response,
                             "response_url": row[8],
                             "decision_action": row[9],
+                            "owner_sub": row[10] if len(row) > 10 and row[10] else row[2],
+                            "slack_channel": row[11] if len(row) > 11 else None,
+                            "slack_ts": row[12] if len(row) > 12 else None,
                         }
         except Exception as err:
             logger.warning(f"failed to fetch post from postgres: {err}")
@@ -597,7 +679,8 @@ def get_post_by_id(post_id: str) -> dict[str, Any] | None:
             cur.execute(
                 """
                 SELECT post_id, content, profile_id, access_token, status,
-                       created_at, updated_at, linkedin_response, response_url, decision_action
+                       created_at, updated_at, linkedin_response, response_url, decision_action,
+                       owner_sub, slack_channel, slack_ts
                 FROM posts
                 WHERE post_id = ?;
                 """,
@@ -617,6 +700,9 @@ def get_post_by_id(post_id: str) -> dict[str, Any] | None:
                     "linkedin_response": parsed_response,
                     "response_url": row[8],
                     "decision_action": row[9],
+                    "owner_sub": row[10] if len(row) > 10 and row[10] else row[2],
+                    "slack_channel": row[11] if len(row) > 11 else None,
+                    "slack_ts": row[12] if len(row) > 12 else None,
                 }
     except Exception as err:
         logger.warning(f"failed to fetch post from sqlite: {err}")
@@ -745,7 +831,8 @@ def list_posts() -> list[dict[str, Any]]:
                     cur.execute(
                         """
                         SELECT post_id, content, profile_id, access_token, status,
-                               created_at, updated_at, linkedin_response, response_url, decision_action
+                               created_at, updated_at, linkedin_response, response_url, decision_action,
+                               owner_sub, slack_channel, slack_ts
                         FROM posts
                         ORDER BY created_at DESC;
                         """
@@ -767,6 +854,9 @@ def list_posts() -> list[dict[str, Any]]:
                                     "linkedin_response": parsed_response,
                                     "response_url": row[8],
                                     "decision_action": row[9],
+                                    "owner_sub": row[10] if len(row) > 10 and row[10] else row[2],
+                                    "slack_channel": row[11] if len(row) > 11 else None,
+                                    "slack_ts": row[12] if len(row) > 12 else None,
                                 }
                             )
                         return posts
@@ -780,7 +870,8 @@ def list_posts() -> list[dict[str, Any]]:
             cur.execute(
                 """
                 SELECT post_id, content, profile_id, access_token, status,
-                       created_at, updated_at, linkedin_response, response_url, decision_action
+                       created_at, updated_at, linkedin_response, response_url, decision_action,
+                       owner_sub, slack_channel, slack_ts
                 FROM posts
                 ORDER BY created_at DESC;
                 """
@@ -802,6 +893,9 @@ def list_posts() -> list[dict[str, Any]]:
                             "linkedin_response": parsed_response,
                             "response_url": row[8],
                             "decision_action": row[9],
+                            "owner_sub": row[10] if len(row) > 10 and row[10] else row[2],
+                            "slack_channel": row[11] if len(row) > 11 else None,
+                            "slack_ts": row[12] if len(row) > 12 else None,
                         }
                     )
                 return posts
@@ -1030,11 +1124,11 @@ def get_linkedin_token_record(token_id: str = "default") -> dict[str, Any] | Non
                     cur.execute(
                         """
                         SELECT id, access_token, refresh_token, expires_at,
-                               refresh_expires_at, profile_id, person_urn, scope, updated_at
+                               refresh_expires_at, profile_id, person_urn, scope, updated_at, slack_user_id
                         FROM linkedin_tokens
-                        WHERE id = %s;
+                        WHERE id = %s OR person_urn = %s;
                         """,
-                        (token_id,),
+                        (token_id, token_id),
                     )
                     row = cur.fetchone()
                     if row:
@@ -1050,6 +1144,7 @@ def get_linkedin_token_record(token_id: str = "default") -> dict[str, Any] | Non
                             "person_urn": row[6],
                             "scope": row[7],
                             "updated_at": row[8],
+                            "slack_user_id": row[9] if len(row) > 9 else None,
                         }
         except Exception as err:
             logger.warning(f"failed to load token from postgres: {err}")
@@ -1061,11 +1156,11 @@ def get_linkedin_token_record(token_id: str = "default") -> dict[str, Any] | Non
             cur.execute(
                 """
                 SELECT id, access_token, refresh_token, expires_at,
-                       refresh_expires_at, profile_id, person_urn, scope, updated_at
+                       refresh_expires_at, profile_id, person_urn, scope, updated_at, slack_user_id
                 FROM linkedin_tokens
-                WHERE id = ?;
+                WHERE id = ? OR person_urn = ?;
                 """,
-                (token_id,),
+                (token_id, token_id),
             )
             row = cur.fetchone()
             if row:
@@ -1081,6 +1176,7 @@ def get_linkedin_token_record(token_id: str = "default") -> dict[str, Any] | Non
                     "person_urn": row[6],
                     "scope": row[7],
                     "updated_at": row[8],
+                    "slack_user_id": row[9] if len(row) > 9 else None,
                 }
     except Exception as err:
         logger.warning(f"failed to load token from sqlite: {err}")
@@ -1098,6 +1194,7 @@ def get_linkedin_token_record(token_id: str = "default") -> dict[str, Any] | Non
             "person_urn": os.getenv("LINKEDIN_PERSON_URN"),
             "scope": None,
             "updated_at": None,
+            "slack_user_id": None,
         }
 
     # Backup file check
@@ -1117,6 +1214,7 @@ def get_linkedin_token_record(token_id: str = "default") -> dict[str, Any] | Non
                 "person_urn": os.getenv("LINKEDIN_PERSON_URN"),
                 "scope": None,
                 "updated_at": None,
+                "slack_user_id": None,
             }
 
     return None
@@ -1455,3 +1553,211 @@ def delete_session(session_id: str | None) -> bool:
         logger.warning(f"failed deleting session in sqlite: {err}")
 
     return deleted
+
+
+def set_slack_user_id(sub: str, slack_user_id: str | None) -> bool:
+    """Associate a Slack user ID with a LinkedIn member sub across storage backends.
+
+    Purpose:
+        Persists the mapped Slack user ID for a LinkedIn member to enable direct message routing.
+
+    Steps:
+        1. Clean and validate sub parameter. Return False if empty.
+        2. Resolve sub alternatives (bare sub or urn:li:person:sub).
+        3. Attempt update in PostgreSQL linkedin_tokens table.
+        4. Attempt update in SQLite linkedin_tokens table.
+        5. Return True if at least one row was updated in either backend.
+
+    Returns:
+        bool: True if user was found and updated, False otherwise.
+
+    Raises:
+        None.
+    """
+    if not sub or not sub.strip():
+        return False
+    clean_sub = sub.strip()
+    alt_urn = (
+        f"urn:li:person:{clean_sub}"
+        if not clean_sub.startswith("urn:li:person:")
+        else clean_sub[len("urn:li:person:"):]
+    )
+    init_storage()
+    updated = False
+
+    conn = get_postgres_connection()
+    if conn:
+        try:
+            with conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        UPDATE linkedin_tokens
+                        SET slack_user_id = %s, updated_at = %s
+                        WHERE id = %s OR person_urn = %s OR id = %s OR person_urn = %s;
+                        """,
+                        (slack_user_id, datetime.now(timezone.utc), clean_sub, clean_sub, alt_urn, alt_urn),
+                    )
+                    if cur.rowcount > 0:
+                        updated = True
+        except Exception as err:
+            logger.warning(f"failed to set slack_user_id in postgres: {err}")
+
+    try:
+        with get_sqlite_connection() as sqlite_conn:
+            cur = sqlite_conn.execute(
+                """
+                UPDATE linkedin_tokens
+                SET slack_user_id = ?, updated_at = ?
+                WHERE id = ? OR person_urn = ? OR id = ? OR person_urn = ?;
+                """,
+                (slack_user_id, datetime.now(timezone.utc).isoformat(), clean_sub, clean_sub, alt_urn, alt_urn),
+            )
+            sqlite_conn.commit()
+            if cur.rowcount > 0:
+                updated = True
+    except Exception as err:
+        logger.warning(f"failed to set slack_user_id in sqlite: {err}")
+
+    return updated
+
+
+def get_slack_user_id(sub: str) -> str | None:
+    """Retrieve mapped Slack user ID for a given LinkedIn sub or person URN.
+
+    Purpose:
+        Looks up the persisted Slack user ID for routing direct approval messages.
+
+    Steps:
+        1. Clean and validate sub parameter. Return None if empty.
+        2. Resolve sub alternatives (bare sub or urn:li:person:sub).
+        3. Query PostgreSQL linkedin_tokens table if reachable.
+        4. Query SQLite linkedin_tokens table if PostgreSQL misses or fails.
+        5. Return the retrieved Slack user ID or None.
+
+    Returns:
+        str | None: Slack member ID (e.g. U12345678) or None if unlinked.
+
+    Raises:
+        None.
+    """
+    if not sub or not sub.strip():
+        return None
+    clean_sub = sub.strip()
+    alt_urn = (
+        f"urn:li:person:{clean_sub}"
+        if not clean_sub.startswith("urn:li:person:")
+        else clean_sub[len("urn:li:person:"):]
+    )
+    init_storage()
+
+    conn = get_postgres_connection()
+    if conn:
+        try:
+            with conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT slack_user_id FROM linkedin_tokens
+                        WHERE (id = %s OR person_urn = %s OR id = %s OR person_urn = %s)
+                          AND slack_user_id IS NOT NULL AND slack_user_id != ''
+                        LIMIT 1;
+                        """,
+                        (clean_sub, clean_sub, alt_urn, alt_urn),
+                    )
+                    row = cur.fetchone()
+                    if row and row[0]:
+                        return row[0]
+        except Exception as err:
+            logger.warning(f"failed to get slack_user_id from postgres: {err}")
+
+    try:
+        with get_sqlite_connection() as sqlite_conn:
+            cur = sqlite_conn.cursor()
+            cur.execute(
+                """
+                SELECT slack_user_id FROM linkedin_tokens
+                WHERE (id = ? OR person_urn = ? OR id = ? OR person_urn = ?)
+                  AND slack_user_id IS NOT NULL AND slack_user_id != ''
+                LIMIT 1;
+                """,
+                (clean_sub, clean_sub, alt_urn, alt_urn),
+            )
+            row = cur.fetchone()
+            if row and row[0]:
+                return row[0]
+    except Exception as err:
+        logger.warning(f"failed to get slack_user_id from sqlite: {err}")
+
+    return None
+
+
+def update_post_slack_ref(post_id: str, channel: str, ts: str) -> bool:
+    """Store Slack channel and timestamp references on a post record.
+
+    Purpose:
+        Associates an active Slack approval DM message with its database post record
+        so that subsequent interactive actions can update the original message in place.
+
+    Steps:
+        1. Validate parameters. Return False if post_id is empty.
+        2. Attempt update in PostgreSQL posts table.
+        3. Attempt update in SQLite posts table.
+        4. Update JSON fallback file if post exists there.
+        5. Return True if updated in any tier, False otherwise.
+
+    Returns:
+        bool: True if post record was found and updated, False otherwise.
+
+    Raises:
+        None.
+    """
+    if not post_id or not post_id.strip():
+        return False
+    init_storage()
+    updated = False
+
+    conn = get_postgres_connection()
+    if conn:
+        try:
+            with conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        UPDATE posts
+                        SET slack_channel = %s, slack_ts = %s
+                        WHERE post_id = %s;
+                        """,
+                        (channel, ts, post_id),
+                    )
+                    if cur.rowcount > 0:
+                        updated = True
+        except Exception as err:
+            logger.warning(f"failed to update post slack ref in postgres: {err}")
+
+    try:
+        with get_sqlite_connection() as sqlite_conn:
+            cur = sqlite_conn.execute(
+                """
+                UPDATE posts
+                SET slack_channel = ?, slack_ts = ?
+                WHERE post_id = ?;
+                """,
+                (channel, ts, post_id),
+            )
+            sqlite_conn.commit()
+            if cur.rowcount > 0:
+                updated = True
+    except Exception as err:
+        logger.warning(f"failed to update post slack ref in sqlite: {err}")
+
+    # JSON fallback
+    json_posts = _load_posts_from_json()
+    if post_id in json_posts:
+        json_posts[post_id]["slack_channel"] = channel
+        json_posts[post_id]["slack_ts"] = ts
+        _save_posts_to_json(json_posts)
+        updated = True
+
+    return updated
+

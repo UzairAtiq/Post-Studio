@@ -102,6 +102,7 @@ async def start_post_flow(
             {
                 "topic": topic,
                 "post_id": resolved_post_id,
+                "user_sub": user_sub,
             },
             config=config,
         )
@@ -129,14 +130,30 @@ async def start_post_flow(
         elif isinstance(first_interrupt, dict):
             slack_delivery = first_interrupt.get("value", {}).get("slack_delivery")
 
+    dm_sent = bool(
+        slack_delivery
+        and (
+            slack_delivery.get("ok")
+            or slack_delivery.get("dm_sent")
+            or slack_delivery.get("status") == "sent"
+        )
+    )
+
+    resolved_person = user_sub or get_linkedin_person_urn()
     return {
         "success": True,
         "post_id": resolved_post_id,
-        "person_urn": get_linkedin_person_urn(),
+        "person_urn": resolved_person,
+        "owner_sub": resolved_person,
         "status": "pending_approval",
         "generated_content": result.get("content", ""),
+        "dm_sent": dm_sent,
         "slack_delivery": slack_delivery,
-        "message": "Post generated and sent to Slack for user approval.",
+        "message": (
+            "Post generated and sent to Slack for user approval."
+            if dm_sent
+            else "Post generated. Slack DM skipped (account not linked in workspace); approve via web dashboard."
+        ),
     }
 
 

@@ -24,6 +24,8 @@ GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
 DATABASE_URL = os.getenv("DATABASE_URL") or os.getenv("CONNECTION_STRING_SUPABASE")
 SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
 SLACK_SIGNING_SECRET = os.getenv("SLACK_SIGNING_SECRET", "")
+SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN", "")
+SLACK_WORKSPACE_INVITE_URL = os.getenv("SLACK_WORKSPACE_INVITE_URL", "")
 
 # linkedin oauth credentials and configuration
 LINKEDIN_CLIENT_ID = os.getenv("LINKEDIN_CLIENT_ID")

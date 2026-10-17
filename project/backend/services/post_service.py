@@ -89,18 +89,19 @@ def save_post(
     post_id: str | None = None,
     person_urn: str | None = None,
     access_token: str | None = None,
+    owner_sub: str | None = None,
 ) -> dict[str, Any]:
     """Persist drafted post into storage with pending approval status.
 
     Purpose:
         Resolves LinkedIn credentials, assigns post ID if not provided, and persists
-        the pending post record to active storage.
+        the pending post record to active storage with owner_sub tracking.
 
     Steps:
         1. Validate content is non-empty.
         2. Resolve valid LinkedIn access token and author person URN.
         3. Generate next sequential post ID if omitted.
-        4. Persist post record with pending status.
+        4. Persist post record with pending status and owner_sub.
         5. Return saved post record metadata.
 
     Returns:
@@ -126,6 +127,7 @@ def save_post(
             return {"success": False, "error": f"Failed resolving person URN: {urn_err}"}
 
     final_post_id = post_id or generate_next_post_id()
+    resolved_owner = owner_sub or resolved_urn
 
     try:
         record = save_post_record(
@@ -134,11 +136,13 @@ def save_post(
             profile_id=resolved_urn,
             access_token=token,
             status=PostStatus.PENDING,
+            owner_sub=resolved_owner,
         )
         return {
             "success": True,
             "post_id": final_post_id,
             "profile_id": resolved_urn,
+            "owner_sub": resolved_owner,
             "status": record.get("status", PostStatus.PENDING.value),
             "content": content.strip(),
         }
@@ -148,18 +152,22 @@ def save_post(
 
 
 def request_approval(post_id: str, content: str) -> dict[str, Any]:
-    """Dispatch Slack Block Kit interactive approval card for a pending post.
+    """Dispatch Slack approval request for a pending post.
 
     Purpose:
-        Sends an interactive message with Approve and Discard buttons to configured Slack channel.
+        Attempts to deliver an interactive direct message to the post owner's Slack account.
+        If user has no mapped Slack account, skips DM delivery allowing dashboard approval.
 
     Steps:
         1. Validate post_id and content arguments.
-        2. Call Slack service to dispatch interactive Block Kit message.
-        3. Return delivery confirmation outcome.
+        2. Query post record from storage to retrieve owner_sub.
+        3. Check storage for owner's mapped Slack member ID.
+        4. If Slack user ID exists, dispatch private approval DM via send_approval_dm.
+        5. If unmapped and webhook configured, fall back to webhook; otherwise skip DM.
+        6. Return delivery confirmation outcome.
 
     Returns:
-        dict[str, Any]: Delivery outcome dictionary with success flag and delivery details.
+        dict[str, Any]: Delivery outcome dictionary with success flag, dm_sent, and details.
 
     Raises:
         None.
@@ -171,22 +179,67 @@ def request_approval(post_id: str, content: str) -> dict[str, Any]:
 
     clean_post_id = post_id.strip()
     try:
-        slack_result = send_slack_approval_request(
-            post_id=clean_post_id,
-            content=content.strip(),
-        )
-        if not slack_result.get("success"):
-            err_msg = slack_result.get("error", "Unknown Slack error")
-            logger.error(f"request_approval failed for post_id={clean_post_id}: {err_msg}")
+        from services.slack import send_approval_dm
+        from services.storage import get_slack_user_id
+
+        record = get_post_by_id(clean_post_id)
+        owner_sub = record.get("owner_sub") or record.get("profile_id") if record else None
+        slack_uid = None
+        if owner_sub and owner_sub != "default":
+            slack_uid = get_slack_user_id(owner_sub)
+        elif owner_sub == "default" or not owner_sub:
+            slack_uid = get_slack_user_id("default")
+
+        if slack_uid:
+            dm_result = send_approval_dm(
+                slack_user_id=slack_uid,
+                post={"post_id": clean_post_id, "content": content.strip()},
+            )
+            if dm_result and dm_result.get("ok"):
+                return {
+                    "success": True,
+                    "post_id": clean_post_id,
+                    "slack_delivery": dm_result,
+                    "dm_sent": True,
+                }
+            logger.warning(f"send_approval_dm failed for slack_user_id='{slack_uid}' on post '{clean_post_id}'.")
             return {
                 "success": False,
                 "post_id": clean_post_id,
-                "error": f"request_approval failed for post_id={clean_post_id}: {err_msg}",
+                "error": "Failed sending Slack approval DM.",
+                "dm_sent": False,
             }
+
+        # Fallback to webhook if configured in environment
+        from config.settings import SLACK_WEBHOOK_URL
+
+        if SLACK_WEBHOOK_URL:
+            slack_result = send_slack_approval_request(
+                post_id=clean_post_id,
+                content=content.strip(),
+            )
+            if not slack_result.get("success"):
+                err_msg = slack_result.get("error", "Unknown Slack error")
+                logger.error(f"request_approval failed for post_id={clean_post_id}: {err_msg}")
+                return {
+                    "success": False,
+                    "post_id": clean_post_id,
+                    "error": f"request_approval failed for post_id={clean_post_id}: {err_msg}",
+                }
+            return {
+                "success": True,
+                "post_id": clean_post_id,
+                "slack_delivery": slack_result,
+                "dm_sent": False,
+            }
+
+        logger.info(f"User '{owner_sub}' has no Slack user ID; skipped DM for post '{clean_post_id}'.")
         return {
             "success": True,
             "post_id": clean_post_id,
-            "slack_delivery": slack_result,
+            "slack_delivery": None,
+            "dm_sent": False,
+            "message": "Slack DM skipped (account not linked in workspace); approve via web dashboard.",
         }
     except Exception as dispatch_err:
         logger.error(f"request_approval failed for post_id={clean_post_id}: {dispatch_err}")

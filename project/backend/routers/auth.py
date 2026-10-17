@@ -20,6 +20,7 @@ from services.storage import (
     get_valid_linkedin_access_token,
     refresh_linkedin_access_token,
     save_linkedin_token,
+    set_slack_user_id,
 )
 from services.linkedin_service import fetch_linkedin_person_urn
 from utils import FRONTEND_DIR, get_effective_redirect_uri
@@ -27,6 +28,47 @@ from utils import FRONTEND_DIR, get_effective_redirect_uri
 logger = logging.getLogger("auth_router")
 
 router = APIRouter(tags=["Authentication"])
+
+
+def get_current_user(request: Request) -> str:
+    """FastAPI dependency to extract and validate the authenticated user sub.
+
+    Purpose:
+        Enforces session authentication via server-side session_id cookie and returns
+        the user's sub or person URN.
+
+    Steps:
+        1. Extract session_id cookie from incoming request.
+        2. Look up active user sub in database via get_session_sub.
+        3. If session_id is missing, expired, or invalid, raise HTTP 401 Unauthorized.
+        4. Return authenticated user sub.
+
+    Returns:
+        str: Authenticated user sub or person URN.
+
+    Raises:
+        HTTPException: 401 Unauthorized if session is missing, invalid, or expired.
+    """
+    session_id = request.cookies.get("session_id")
+    if session_id:
+        sub = get_session_sub(session_id)
+        if sub:
+            return sub
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session expired or invalid. Please log in again.",
+        )
+
+    # Fallback to default user if default credentials are valid (single-user / tests)
+    token = get_valid_linkedin_access_token(token_id="default")
+    if token:
+        record = get_linkedin_token_record(token_id="default")
+        return (record.get("person_urn") if record else None) or "default"
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Authentication required. Please log in via /linkedin/login.",
+    )
 
 
 def is_secure_connection(request: Request) -> bool:
@@ -225,6 +267,7 @@ async def linkedin_callback(
     user_name = "LinkedIn User"
     person_urn = ""
     profile_id_str = None
+    user_email = None
 
     try:
         userinfo_resp = requests.get(
@@ -237,6 +280,7 @@ async def linkedin_callback(
             profile_id_str = json.dumps(user_info)
             user_name = user_info.get("name", user_name)
             sub = user_info.get("sub")
+            user_email = user_info.get("email")
             if sub:
                 person_urn = f"urn:li:person:{sub}"
     except Exception as err:
@@ -271,6 +315,23 @@ async def linkedin_callback(
         scope=scope,
         token_id="default",
     )
+
+    # Attempt to link user's Slack account by email in the shared Slack workspace
+    if user_email:
+        try:
+            from services.slack import lookup_slack_user_id
+
+            slack_uid = lookup_slack_user_id(user_email)
+            if slack_uid:
+                set_slack_user_id(sub=person_urn, slack_user_id=slack_uid)
+                if sub:
+                    set_slack_user_id(sub=sub, slack_user_id=slack_uid)
+                set_slack_user_id(sub="default", slack_user_id=slack_uid)
+                logger.info(f"Linked Slack user ID '{slack_uid}' for LinkedIn user '{person_urn}'.")
+            else:
+                logger.info(f"User email '{user_email}' not found in Slack workspace; Slack unlinked.")
+        except Exception as slack_err:
+            logger.warning(f"Failed to lookup or link Slack user during callback: {slack_err}")
 
     logger.info(f"successfully authenticated LinkedIn user: {user_name} ({person_urn})")
 

@@ -47,6 +47,7 @@ def generate_post(
 def save_post(
     content: str,
     post_id: str = "",
+    owner_sub: str = "",
 ) -> dict[str, Any]:
     """Persist generated post content to storage with pending approval status.
 
@@ -63,7 +64,11 @@ def save_post(
     Raises:
         None.
     """
-    return save_post_service(content=content, post_id=post_id or None)
+    return save_post_service(
+        content=content,
+        post_id=post_id or None,
+        owner_sub=owner_sub or None,
+    )
 
 
 @mcp.tool()

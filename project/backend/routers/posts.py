@@ -1,12 +1,13 @@
 """LinkedIn post generation, management, and CRUD API router."""
 
 from typing import Any
-from fastapi import APIRouter, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from config.constants import PostStatus
 from config.settings import (
     POST_FLOW_MODE,
     get_linkedin_person_urn,
 )
+from routers.auth import get_current_user
 from services.storage import (
     delete_post_record,
     generate_next_post_id,
@@ -138,47 +139,159 @@ def delete_post_endpoint(post_id: str) -> dict[str, Any]:
     }
 
 
+def check_post_ownership(post: dict[str, Any], user_sub: str) -> bool:
+    """Verify whether the authenticated user owns the given post record.
+
+    Purpose:
+        Compares post owner_sub or profile_id with current user sub, stripping
+        urn:li:person: prefixes to prevent unauthorized access.
+
+    Steps:
+        1. Extract owner_sub or profile_id from post.
+        2. Allow if unowned or default token mode.
+        3. Match exact string or stripped bare IDs.
+        4. Return True if match, False otherwise.
+
+    Returns:
+        bool: True if user owns the post, False otherwise.
+
+    Raises:
+        None.
+    """
+    owner = post.get("owner_sub") or post.get("profile_id")
+    if not owner or owner == "default" or user_sub == "default":
+        return True
+    if owner == user_sub:
+        return True
+    bare_owner = owner.replace("urn:li:person:", "").strip()
+    bare_user = user_sub.replace("urn:li:person:", "").strip()
+    return bare_owner == bare_user
+
+
+@router.post("/posts/{post_id}/approve")
+def approve_post_dashboard_endpoint(
+    post_id: str,
+    user_sub: str = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Approve and publish a pending post from the web dashboard.
+
+    Purpose:
+        Validates post ownership for the authenticated user and executes
+        the shared LinkedIn publication and Slack card update logic.
+
+    Steps:
+        1. Query post by post_id from storage. If not found, raise 404.
+        2. Validate that user_sub owns this post. If not, raise 403 Forbidden.
+        3. Call shared approve_post(post_id).
+        4. Return execution result dictionary.
+
+    Returns:
+        dict[str, Any]: Publication outcome dictionary.
+
+    Raises:
+        HTTPException: 404 if post not found, 403 if user does not own post, 401 if unauthenticated.
+    """
+    post = get_post_by_id(post_id)
+    if not post:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Post '{post_id}' not found.",
+        )
+
+    if not check_post_ownership(post=post, user_sub=user_sub):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to approve this post.",
+        )
+
+    from services.approval import approve_post
+
+    result = approve_post(post_id=post_id)
+    if not result.get("success") and result.get("status") != "published":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=result.get("error", "Failed to approve post."),
+        )
+    return result
+
+
+@router.post("/posts/{post_id}/reject")
+def reject_post_dashboard_endpoint(
+    post_id: str,
+    user_sub: str = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Reject and discard a pending post from the web dashboard.
+
+    Purpose:
+        Validates post ownership for the authenticated user and executes
+        the shared rejection and Slack card update logic.
+
+    Steps:
+        1. Query post by post_id from storage. If not found, raise 404.
+        2. Validate that user_sub owns this post. If not, raise 403 Forbidden.
+        3. Call shared reject_post(post_id).
+        4. Return rejection outcome dictionary.
+
+    Returns:
+        dict[str, Any]: Rejection outcome dictionary.
+
+    Raises:
+        HTTPException: 404 if post not found, 403 if user does not own post, 401 if unauthenticated.
+    """
+    post = get_post_by_id(post_id)
+    if not post:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Post '{post_id}' not found.",
+        )
+
+    if not check_post_ownership(post=post, user_sub=user_sub):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to reject this post.",
+        )
+
+    from services.approval import reject_post
+
+    return reject_post(post_id=post_id)
+
+
 # trigger post generation and slack approval request for testing
 @router.post("/posts/generate")
 async def generate_post_endpoint(
     request: Request,
     topic: str = Query(default="AI advancements and modern software engineering"),
+    user_sub: str = Depends(get_current_user),
 ) -> dict[str, Any]:
-    """Generate a LinkedIn post using AI and send an interactive Slack approval request.
+    """Generate a LinkedIn post using AI and send an interactive Slack approval DM if linked.
 
     Purpose:
         Automates the creation of a LinkedIn post on a given topic using Groq LLM,
-        stores it with pending status, and dispatches an interactive approval request to Slack.
-        Routes to graph or legacy execution based on POST_FLOW_MODE configuration,
-        associating the post with the authenticated user session when available.
+        stores it with pending status and owner_sub, and sends a DM to the author's Slack account
+        if mapped, or leaves it for web dashboard approval if unlinked.
 
     Steps:
-        1. Extract session_id cookie and resolve authenticated user sub (person URN).
+        1. Extract authenticated user sub from dependency.
         2. If POST_FLOW_MODE is 'graph', invoke services.post_graph.start_post_flow.
         3. Otherwise, invoke legacy.post_flow.run_legacy_post_flow.
-        4. Return summary dictionary with post ID, status, and Slack dispatch status.
+        4. Return summary dictionary with post ID, status, content, and dm_sent status.
 
     Returns:
-        dict[str, Any]: Summary dictionary with post_id, status, generated content, and Slack delivery info.
+        dict[str, Any]: Summary dictionary with post_id, status, generated content, and DM delivery info.
 
     Raises:
         HTTPException: 401 Unauthorized if LinkedIn is not authenticated.
     """
-    from services.storage import get_session_sub
-
     session_id = request.cookies.get("session_id")
-    user_sub = get_session_sub(session_id) if session_id else None
 
     if POST_FLOW_MODE == "graph":
         from services.post_graph import start_post_flow
 
-        if user_sub:
+        if session_id:
             return await start_post_flow(topic=topic, user_sub=user_sub)
         return await start_post_flow(topic=topic)
 
     from legacy.post_flow import run_legacy_post_flow
 
-    if user_sub:
-        return run_legacy_post_flow(topic=topic, user_sub=user_sub)
-    return run_legacy_post_flow(topic=topic)
+    return run_legacy_post_flow(topic=topic, user_sub=user_sub)
 

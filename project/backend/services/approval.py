@@ -49,20 +49,242 @@ def record_slack_decision(
             "response_url": response_url,
         }
 
-    decision_status = PostStatus.APPROVED if action_id == "approve_linkedin_post" else post_record.get("status", PostStatus.PENDING)
+    decision_status = (
+        PostStatus.APPROVED
+        if action_id in ("approve_linkedin_post", "approve_post")
+        else post_record.get("status", PostStatus.PENDING)
+    )
     update_post_status(
         post_id=post_id,
         status=decision_status,
         extra_data={"response_url": response_url, "decision_action": action_id},
     )
 
-    decision_name = "approved" if action_id == "approve_linkedin_post" else "discarded"
+    decision_name = "approved" if action_id in ("approve_linkedin_post", "approve_post") else "discarded"
     return {
         "success": True,
         "post_id": post_id,
         "decision": decision_name,
         "response_url": response_url,
     }
+
+
+def _notify_slack_resolution(
+    post_record: dict[str, Any],
+    post_id: str,
+    text: str,
+    action_type: str,
+    detail_message: str = "",
+) -> None:
+    """Update Slack DM and/or response_url card with resolution message.
+
+    Purpose:
+        Propagates approval or rejection feedback back to Slack via direct message
+        update (chat.update) and/or interaction response_url.
+
+    Steps:
+        1. If post has slack_channel and slack_ts, call update_message.
+        2. If post has response_url, call update_slack_message.
+        3. Catch and log any exceptions quietly.
+
+    Returns:
+        None.
+
+    Raises:
+        None.
+    """
+    channel = post_record.get("slack_channel")
+    ts = post_record.get("slack_ts")
+    if channel and ts:
+        try:
+            from services.slack import update_message
+
+            update_message(channel=channel, ts=ts, text=text)
+        except Exception as dm_err:
+            logger.warning(f"Failed to update Slack DM for post '{post_id}': {dm_err}")
+
+    response_url = post_record.get("response_url")
+    if response_url:
+        try:
+            update_slack_message(
+                response_url=response_url,
+                post_id=post_id,
+                action_type=action_type,
+                detail_message=detail_message,
+            )
+        except Exception as hook_err:
+            logger.warning(f"Failed to update Slack response_url for post '{post_id}': {hook_err}")
+
+
+def approve_post(post_id: str) -> dict[str, Any]:
+    """Approve a pending post, publish it to LinkedIn, and update Slack messages.
+
+    Purpose:
+        Executes approval for a pending post by decrypting the author's LinkedIn access token,
+        submitting the post to LinkedIn REST API, updating status to published (or publish_failed),
+        and replacing the interactive buttons in Slack DM or channel.
+
+    Steps:
+        1. Fetch post record from storage. Return failure if not found.
+        2. Idempotency check: if status is already published, return current state.
+        3. If status is discarded, return failure explanation.
+        4. Resolve author's access token and person URN using owner_sub or profile_id.
+        5. Submit content to LinkedIn REST API via publish_post_to_linkedin.
+        6. On success:
+           - Update post status to PostStatus.PUBLISHED in storage.
+           - Notify Slack resolution via DM or webhook.
+        7. On failure:
+           - Update post status to PostStatus.PUBLISH_FAILED in storage.
+           - Notify Slack resolution with error notice.
+        8. Return execution result dictionary.
+
+    Returns:
+        dict[str, Any]: Execution outcome dictionary.
+
+    Raises:
+        None.
+    """
+    post_record = get_post_by_id(post_id)
+    if not post_record:
+        return {"success": False, "error": f"Post '{post_id}' not found."}
+
+    current_status = post_record.get("status")
+    if current_status in (PostStatus.PUBLISHED, "published"):
+        return {
+            "success": True,
+            "status": "published",
+            "post_id": post_id,
+            "publish_result": post_record.get("linkedin_response"),
+            "message": f"Post '{post_id}' is already published.",
+        }
+
+    if current_status in (PostStatus.DISCARDED, "discarded"):
+        return {
+            "success": False,
+            "status": "discarded",
+            "post_id": post_id,
+            "error": f"Post '{post_id}' has already been rejected/discarded.",
+        }
+
+    owner_sub = post_record.get("owner_sub") or post_record.get("profile_id")
+    token = None
+    if owner_sub:
+        from services.storage import get_valid_linkedin_access_token
+
+        token = get_valid_linkedin_access_token(token_id=owner_sub)
+
+    if not token and post_record.get("access_token"):
+        token = post_record.get("access_token")
+
+    if not token:
+        from services.storage import get_valid_linkedin_access_token
+
+        token = get_valid_linkedin_access_token(token_id="default") or get_linkedin_access_token()
+
+    person_urn = post_record.get("profile_id") or owner_sub or get_linkedin_person_urn()
+    if person_urn and not person_urn.startswith("urn:li:person:"):
+        person_urn = f"urn:li:person:{person_urn}"
+
+    if not token:
+        err_msg = "No LinkedIn access token available for post author."
+        logger.error(f"Cannot publish post '{post_id}': {err_msg}")
+        update_post_status(post_id=post_id, status=PostStatus.PUBLISH_FAILED)
+        _notify_slack_resolution(
+            post_record=post_record,
+            post_id=post_id,
+            text=f"⚠️ Post `{post_id}` approval failed: No LinkedIn access token available.",
+            action_type=PostStatus.PUBLISH_FAILED.value,
+            detail_message="Failed: LinkedIn is not connected.",
+        )
+        return {"success": False, "status": "publish_failed", "post_id": post_id, "error": err_msg}
+
+    content = post_record.get("content", "")
+    publish_result = publish_post_to_linkedin(
+        content=content,
+        access_token=token,
+        person_urn=person_urn,
+    )
+
+    if publish_result.get("success"):
+        post_urn = publish_result.get("post_urn", "published")
+        update_post_status(
+            post_id=post_id,
+            status=PostStatus.PUBLISHED,
+            extra_data={"linkedin_response": publish_result},
+        )
+        _notify_slack_resolution(
+            post_record=post_record,
+            post_id=post_id,
+            text=f"✅ Post `{post_id}` was approved and published to LinkedIn! ({post_urn})",
+            action_type=PostStatus.PUBLISHED.value,
+            detail_message=f"Published successfully to LinkedIn ({post_urn})",
+        )
+        return {
+            "success": True,
+            "status": "published",
+            "post_id": post_id,
+            "publish_result": publish_result,
+            "linkedin_response": publish_result,
+        }
+
+    error_message = publish_result.get("error", "Unknown LinkedIn error")
+    logger.error(f"Publish failed for post '{post_id}': {error_message}")
+    update_post_status(
+        post_id=post_id,
+        status=PostStatus.PUBLISH_FAILED,
+        extra_data={"linkedin_response": publish_result},
+    )
+    _notify_slack_resolution(
+        post_record=post_record,
+        post_id=post_id,
+        text=f"⚠️ Post `{post_id}` was approved, but publishing to LinkedIn failed: {error_message}",
+        action_type=PostStatus.PUBLISH_FAILED.value,
+        detail_message=f"Failed to publish to LinkedIn: {error_message}",
+    )
+    return {
+        "success": False,
+        "status": "publish_failed",
+        "post_id": post_id,
+        "error": error_message,
+    }
+
+
+def reject_post(post_id: str) -> dict[str, Any]:
+    """Reject and discard a pending post and update Slack messages.
+
+    Purpose:
+        Marks a pending post as discarded in persistent storage and notifies Slack.
+
+    Steps:
+        1. Fetch post record from storage. Return failure if not found.
+        2. Idempotency check: if status is already discarded, return current state.
+        3. Update post status to PostStatus.DISCARDED in storage.
+        4. Notify Slack DM and response_url if present.
+        5. Return rejection outcome dictionary.
+
+    Returns:
+        dict[str, Any]: Outcome dictionary confirming discarded status.
+
+    Raises:
+        None.
+    """
+    post_record = get_post_by_id(post_id)
+    if not post_record:
+        return {"success": False, "error": f"Post '{post_id}' not found."}
+
+    current_status = post_record.get("status")
+    if current_status in (PostStatus.DISCARDED, "discarded"):
+        return {"success": True, "status": "discarded", "post_id": post_id}
+
+    update_post_status(post_id=post_id, status=PostStatus.DISCARDED)
+    _notify_slack_resolution(
+        post_record=post_record,
+        post_id=post_id,
+        text=f"❌ Post `{post_id}` was rejected.",
+        action_type="discarded",
+        detail_message="Post has been rejected and discarded.",
+    )
+    return {"success": True, "status": "discarded", "post_id": post_id}
 
 
 def execute_post_decision(post_id: str) -> dict[str, Any]:
@@ -76,11 +298,10 @@ def execute_post_decision(post_id: str) -> dict[str, Any]:
     Steps:
         1. Fetch post record from storage by post_id. Return failure if not found.
         2. Idempotency check: if status is already published, publish_failed, or discarded,
-           do nothing and return current state dictionary immediately.
-        3. If approved, resolve credentials and publish to LinkedIn. Update Slack card.
-        4. If publication succeeds, update status to published. If fails, update to publish_failed.
-        5. If discard decision recorded, update status to discarded and update Slack card.
-        6. Return execution outcome dictionary.
+           return current state dictionary immediately.
+        3. If approved or action is approve, delegate to approve_post.
+        4. If discard or action is discard/reject, delegate to reject_post.
+        5. Return execution outcome dictionary.
 
     Returns:
         dict[str, Any]: Dictionary containing execution success, post_id, and details.
@@ -94,7 +315,6 @@ def execute_post_decision(post_id: str) -> dict[str, Any]:
 
     current_status = post_record.get("status")
     decision_action = post_record.get("decision_action")
-    response_url = post_record.get("response_url")
 
     # Idempotency check: do nothing if status is already published, publish_failed, or discarded
     if current_status in (
@@ -114,82 +334,15 @@ def execute_post_decision(post_id: str) -> dict[str, Any]:
         }
 
     # Handle approved status or approve action
-    if current_status == PostStatus.APPROVED or decision_action == "approve_linkedin_post":
-        content = post_record.get("content", "")
-        token = post_record.get("access_token") or get_linkedin_access_token()
-        profile_id = post_record.get("profile_id") or get_linkedin_person_urn()
-
-        if not token:
-            logger.error(f"Cannot publish post '{post_id}': No LinkedIn access token available.")
-            if response_url:
-                update_slack_message(
-                    response_url=response_url,
-                    post_id=post_id,
-                    action_type=PostStatus.PUBLISH_FAILED.value,
-                    detail_message="Failed: LinkedIn is not connected. Please connect LinkedIn via the web dashboard.",
-                )
-            return {"success": False, "error": "No LinkedIn access token available."}
-
-        publish_result = publish_post_to_linkedin(
-            content=content,
-            access_token=token,
-            person_urn=profile_id,
-        )
-
-        if publish_result.get("success"):
-            post_urn = publish_result.get("post_urn", "published")
-            update_post_status(
-                post_id=post_id,
-                status=PostStatus.PUBLISHED,
-                extra_data={"linkedin_response": publish_result},
-            )
-            if response_url:
-                update_slack_message(
-                    response_url=response_url,
-                    post_id=post_id,
-                    action_type=PostStatus.PUBLISHED.value,
-                    detail_message=f"Published successfully to LinkedIn ({post_urn})",
-                )
-            return {
-                "success": True,
-                "status": PostStatus.PUBLISHED.value,
-                "post_id": post_id,
-                "publish_result": publish_result,
-            }
-
-        error_message = publish_result.get("error", "Unknown error")
-        update_post_status(
-            post_id=post_id,
-            status=PostStatus.PUBLISH_FAILED,
-            extra_data={"linkedin_response": publish_result},
-        )
-        if response_url:
-            update_slack_message(
-                response_url=response_url,
-                post_id=post_id,
-                action_type=PostStatus.PUBLISH_FAILED.value,
-                detail_message=f"Failed to publish to LinkedIn: {error_message}",
-            )
-        return {
-            "success": False,
-            "status": PostStatus.PUBLISH_FAILED.value,
-            "post_id": post_id,
-            "error": error_message,
-        }
+    if current_status == PostStatus.APPROVED or decision_action in ("approve_linkedin_post", "approve_post"):
+        return approve_post(post_id=post_id)
 
     # Handle discard decision
-    if decision_action == "discard_linkedin_post" or current_status == "discard":
-        update_post_status(post_id=post_id, status=PostStatus.DISCARDED)
-        if response_url:
-            update_slack_message(
-                response_url=response_url,
-                post_id=post_id,
-                action_type="discarded",
-                detail_message="Post has been marked as discarded.",
-            )
-        return {"success": True, "status": PostStatus.DISCARDED.value, "post_id": post_id}
+    if decision_action in ("discard_linkedin_post", "reject_post") or current_status in ("discard", "discarded"):
+        return reject_post(post_id=post_id)
 
     return {"success": False, "error": f"Post '{post_id}' is in unhandled state: '{current_status}'"}
+
 
 def wait_for_decision(post_id: str, timeout_seconds: int = 60) -> dict[str, Any]:
     """Poll storage until user reaches an approval decision in Slack (legacy routine)."""

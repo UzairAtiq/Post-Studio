@@ -7,13 +7,21 @@ import requests
 
 from config.constants import PostStatus
 from config.settings import SLACK_WEBHOOK_URL
+from services.slack import (
+    lookup_slack_user_id,
+    send_approval_dm,
+    update_message,
+)
 
 logger = logging.getLogger("slack_service")
 
 __all__ = [
     "build_approval_blocks",
+    "lookup_slack_user_id",
+    "send_approval_dm",
     "send_approval_request",
     "send_slack_message",
+    "update_message",
     "update_slack_message",
 ]
 
