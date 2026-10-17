@@ -101,3 +101,54 @@ export async function generatePost(topic: string): Promise<GeneratePostResponse>
 
   return response.json();
 }
+
+export interface SlackStatusResponse {
+  connected: boolean;
+  slack_user_id: string | null;
+  email?: string | null;
+  channel_id?: string | null;
+  invite_url: string;
+  message: string;
+}
+
+export interface SlackConnectResponse {
+  success: boolean;
+  connected: boolean;
+  slack_user_id?: string | null;
+  email?: string | null;
+  channel_invited?: boolean;
+  invite_url?: string;
+  message: string;
+}
+
+export async function fetchSlackStatus(): Promise<SlackStatusResponse> {
+  const response = await fetch("/slack/status");
+  if (!response.ok) {
+    throw new Error(`Slack status check failed: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+export async function connectSlack(email?: string): Promise<SlackConnectResponse> {
+  const response = await fetch("/slack/connect", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ email: email || undefined }),
+  });
+  if (!response.ok) {
+    let errorMsg = `Slack connection failed (${response.status})`;
+    try {
+      const errorData = await response.json();
+      if (errorData.detail) {
+        errorMsg = errorData.detail;
+      }
+    } catch {
+      // fallback
+    }
+    throw new Error(errorMsg);
+  }
+  return response.json();
+}
+

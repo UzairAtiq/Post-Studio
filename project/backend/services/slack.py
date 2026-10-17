@@ -12,8 +12,10 @@ from services.storage import update_post_slack_ref
 logger = logging.getLogger("slack_dm_service")
 
 __all__ = [
+    "invite_user_to_channel",
     "lookup_slack_user_id",
     "send_approval_dm",
+    "send_welcome_dm",
     "update_message",
 ]
 
@@ -254,3 +256,88 @@ def update_message(channel: str, ts: str, text: str) -> bool:
     except requests.RequestException as err:
         logger.error(f"Network error updating Slack message (channel={channel}, ts={ts}): {err}")
         return False
+
+
+def invite_user_to_channel(channel: str, slack_user_id: str) -> bool:
+    """Invite a Slack member into a specific channel using the bot token.
+
+    Purpose:
+        Adds a workspace member to a designated Slack approvals or alerts channel.
+
+    Steps:
+        1. Validate channel and slack_user_id, and verify SLACK_BOT_TOKEN is set.
+        2. Post request to https://slack.com/api/conversations.invite.
+        3. Return True if invited or already present; False otherwise.
+
+    Returns:
+        bool: True if member is in channel or successfully invited, False otherwise.
+    """
+    if not channel or not channel.strip() or not slack_user_id or not slack_user_id.strip():
+        return False
+
+    token = SLACK_BOT_TOKEN
+    if not token:
+        logger.warning("SLACK_BOT_TOKEN is not configured; cannot invite user to channel.")
+        return False
+
+    clean_channel = channel.strip()
+    clean_user = slack_user_id.strip()
+    url = "https://slack.com/api/conversations.invite"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json; charset=utf-8",
+    }
+    payload = {
+        "channel": clean_channel,
+        "users": clean_user,
+    }
+
+    try:
+        response = requests.post(url, json=payload, headers=headers, timeout=10)
+        data = response.json()
+        if data.get("ok") or data.get("error") == "already_in_channel":
+            logger.info(f"User '{clean_user}' invited to or already in channel '{clean_channel}'.")
+            return True
+        logger.warning(f"Could not invite user '{clean_user}' to channel '{clean_channel}': {data.get('error')}")
+        return False
+    except requests.RequestException as err:
+        logger.warning(f"Network error inviting user '{clean_user}' to channel '{clean_channel}': {err}")
+        return False
+
+
+def send_welcome_dm(slack_user_id: str, email: str | None = None) -> bool:
+    """Send a friendly welcome direct message confirming Slack account link.
+
+    Purpose:
+        Notifies the user via private DM that their Slack account has been linked.
+
+    Returns:
+        bool: True if message sent successfully, False otherwise.
+    """
+    if not slack_user_id or not slack_user_id.strip():
+        return False
+
+    token = SLACK_BOT_TOKEN
+    if not token:
+        return False
+
+    clean_user = slack_user_id.strip()
+    url = "https://slack.com/api/chat.postMessage"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json; charset=utf-8",
+    }
+    email_note = f" (linked email: `{email}`)" if email else ""
+    payload = {
+        "channel": clean_user,
+        "text": f"👋 Your Slack account{email_note} has been successfully connected to Post Studio! You will receive post approval notifications right here.",
+    }
+
+    try:
+        response = requests.post(url, json=payload, headers=headers, timeout=10)
+        data = response.json()
+        return bool(data.get("ok"))
+    except requests.RequestException as err:
+        logger.warning(f"Failed sending welcome DM to '{clean_user}': {err}")
+        return False
+

@@ -26,6 +26,7 @@ SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
 SLACK_SIGNING_SECRET = os.getenv("SLACK_SIGNING_SECRET", "")
 SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN", "")
 SLACK_WORKSPACE_INVITE_URL = os.getenv("SLACK_WORKSPACE_INVITE_URL", "")
+SLACK_CHANNEL_ID = os.getenv("SLACK_CHANNEL_ID", "")
 
 # linkedin oauth credentials and configuration
 LINKEDIN_CLIENT_ID = os.getenv("LINKEDIN_CLIENT_ID")

@@ -323,3 +323,54 @@ def test_dashboard_approve_and_reject_endpoints():
     resp_reject = client.post(f"/posts/{post_id_reject}/reject")
     assert resp_reject.status_code == 200
     assert resp_reject.json()["status"] == "discarded"
+
+
+def test_custom_email_slack_connect():
+    """Verify connecting Slack with custom email and channel invite dispatch."""
+    client = TestClient(app)
+
+    unique_sub = f"custom_slack_user_{int(time.time())}"
+    person_urn = f"urn:li:person:{unique_sub}"
+    session_id = create_session(sub=person_urn)
+    save_linkedin_token(
+        access_token="fake_token_custom_slack",
+        person_urn=person_urn,
+        token_id=person_urn,
+        profile_id=json.dumps({"sub": unique_sub, "email": "linkedin_profile@example.com"}),
+    )
+
+    client.cookies.set("session_id", session_id)
+
+    # 1. Custom email not found in Slack
+    with patch("routers.slack.lookup_slack_user_id", return_value=None):
+        resp = client.post("/slack/connect", json={"email": "custom_slack@company.com"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["connected"] is False
+        assert data["email"] == "custom_slack@company.com"
+        assert "invite_url" in data
+
+    # 2. Custom email found in Slack, with channel invite and welcome DM
+    with (
+        patch("routers.slack.lookup_slack_user_id", return_value="U_CUSTOM_SLACK_123"),
+        patch("routers.slack.SLACK_CHANNEL_ID", "C_ALERTS_1"),
+        patch("routers.slack.invite_user_to_channel", return_value=True) as mock_invite,
+        patch("routers.slack.send_welcome_dm", return_value=True) as mock_welcome,
+    ):
+        resp = client.post("/slack/connect", json={"email": "custom_slack@company.com"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["connected"] is True
+        assert data["slack_user_id"] == "U_CUSTOM_SLACK_123"
+        assert data["email"] == "custom_slack@company.com"
+        assert data["channel_invited"] is True
+        mock_invite.assert_called_once_with(channel="C_ALERTS_1", slack_user_id="U_CUSTOM_SLACK_123")
+        mock_welcome.assert_called_once_with(slack_user_id="U_CUSTOM_SLACK_123", email="custom_slack@company.com")
+
+    # 3. Status endpoint now returns linked Slack state and email
+    status_resp = client.get("/slack/status")
+    assert status_resp.status_code == 200
+    status_data = status_resp.json()
+    assert status_data["connected"] is True
+    assert status_data["slack_user_id"] == "U_CUSTOM_SLACK_123"
+
