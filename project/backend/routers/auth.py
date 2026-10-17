@@ -2,8 +2,8 @@
 
 import json
 import logging
+import secrets
 import urllib.parse
-import uuid
 from typing import Any
 from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -25,27 +25,19 @@ logger = logging.getLogger("auth_router")
 router = APIRouter(tags=["Authentication"])
 
 
+def is_secure_connection(request: Request) -> bool:
+    """Check if the incoming request uses HTTPS directly or via reverse proxy."""
+    return request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
+
+
 # linkedin oauth authorization redirect
 @router.get("/linkedin/login")
 def linkedin_login(request: Request) -> RedirectResponse:
     """Initiate the LinkedIn OAuth 2.0 authorization code flow.
 
     Purpose:
-        Builds the LinkedIn OAuth authorization URL with state validation and
-        redirects the user's browser to authenticate with LinkedIn.
-
-    Steps:
-        1. Verify that LINKEDIN_CLIENT_ID is configured in the environment.
-        2. Resolve the effective redirect URI based on proxy headers or explicit config.
-        3. Generate a cryptographically secure random UUID for CSRF state validation.
-        4. Assemble query parameters including requested scopes (openid, profile, w_member_social, email).
-        5. Redirect the user to LinkedIn's authorization endpoint.
-
-    Returns:
-        RedirectResponse: 302 redirect to the LinkedIn authorization URL.
-
-    Raises:
-        HTTPException: 500 Internal Server Error if LINKEDIN_CLIENT_ID is not configured.
+        Builds the LinkedIn OAuth authorization URL with state validation, sets
+        a temporary secure state cookie, and redirects user to LinkedIn.
     """
     if not LINKEDIN_CLIENT_ID:
         raise HTTPException(
@@ -54,7 +46,7 @@ def linkedin_login(request: Request) -> RedirectResponse:
         )
 
     redirect_uri = get_effective_redirect_uri(request)
-    oauth_state = uuid.uuid4().hex
+    oauth_state = secrets.token_urlsafe(32)
     params = {
         "response_type": "code",
         "client_id": LINKEDIN_CLIENT_ID,
@@ -63,7 +55,17 @@ def linkedin_login(request: Request) -> RedirectResponse:
         "scope": "openid profile w_member_social email",
     }
     auth_url = f"https://www.linkedin.com/oauth/v2/authorization?{urllib.parse.urlencode(params)}"
-    return RedirectResponse(url=auth_url)
+    response = RedirectResponse(url=auth_url, status_code=status.HTTP_302_FOUND)
+    response.set_cookie(
+        key="linkedin_oauth_state",
+        value=oauth_state,
+        httponly=True,
+        secure=is_secure_connection(request),
+        samesite="lax",
+        max_age=600,
+        path="/",
+    )
+    return response
 
 
 # linkedin oauth callback endpoint (supports both /linkedin/callback and legacy /callback)
@@ -79,45 +81,39 @@ async def linkedin_callback(
     """Handle OAuth redirect callback from LinkedIn after user consent.
 
     Purpose:
-        Exchanges the authorization code for access and refresh tokens, fetches
-        user profile information, persists credentials to storage, and renders
-        the result page.
-
-    Steps:
-        1. Check for incoming error parameters from LinkedIn and render an error response if present.
-        2. Validate that an authorization code was provided.
-        3. Verify that LinkedIn client credentials are configured.
-        4. Exchange authorization code with LinkedIn's accessToken endpoint.
-        5. If token exchange fails:
-           a. If valid token already exists (e.g. browser reload / duplicate request), redirect to dashboard.
-           b. Otherwise, render error.html or return HTTP 400.
-        6. Fetch user profile data via OpenID userinfo endpoint (falling back to URN resolver).
-        7. Persist access token, refresh token, expiration, and user profile to storage.
-        8. Render callback.html template or success HTML response.
-
-    Returns:
-        Response: HTMLResponse with authentication outcome or RedirectResponse to dashboard.
-
-    Raises:
-        HTTPException: 400 Bad Request if authorization code is missing or exchange fails.
-        HTTPException: 500 Internal Server Error if LinkedIn credentials are not configured.
-        HTTPException: 502 Bad Gateway if the OAuth server communication fails.
+        Validates the OAuth state cookie, exchanges the authorization code for
+        access and refresh tokens, persists credentials, and renders the result.
     """
     error_template = FRONTEND_DIR / "error.html"
+
+    # Validate CSRF state parameter against short-lived cookie
+    cookie_state = request.cookies.get("linkedin_oauth_state")
+    if not state or not cookie_state or state != cookie_state:
+        logger.warning(f"OAuth state mismatch or missing cookie: state={state}, cookie={cookie_state}")
+        err_msg = "Invalid or expired OAuth state. Please initiate login again."
+        if error_template.exists():
+            html_content = error_template.read_text(encoding="utf-8").replace("{{ERROR_MESSAGE}}", err_msg)
+            resp = HTMLResponse(status_code=status.HTTP_403_FORBIDDEN, content=html_content)
+        else:
+            resp = HTMLResponse(status_code=status.HTTP_403_FORBIDDEN, content=f"<h2>Error: {err_msg}</h2>")
+        resp.delete_cookie("linkedin_oauth_state", path="/")
+        return resp
 
     if error:
         logger.error(f"LinkedIn OAuth error: {error} - {error_description}")
         err_msg = error_description or error
         if error_template.exists():
             html_content = error_template.read_text(encoding="utf-8").replace("{{ERROR_MESSAGE}}", err_msg)
-            return HTMLResponse(status_code=status.HTTP_400_BAD_REQUEST, content=html_content)
-        return HTMLResponse(status_code=status.HTTP_400_BAD_REQUEST, content=f"<h2>Error: {err_msg}</h2>")
+            resp = HTMLResponse(status_code=status.HTTP_400_BAD_REQUEST, content=html_content)
+        else:
+            resp = HTMLResponse(status_code=status.HTTP_400_BAD_REQUEST, content=f"<h2>Error: {err_msg}</h2>")
+        resp.delete_cookie("linkedin_oauth_state", path="/")
+        return resp
 
     if not code:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Authorization code missing from LinkedIn callback.",
-        )
+        resp = HTMLResponse(status_code=status.HTTP_400_BAD_REQUEST, content="<h2>Error: Authorization code missing</h2>")
+        resp.delete_cookie("linkedin_oauth_state", path="/")
+        return resp
 
     if not LINKEDIN_CLIENT_ID or not LINKEDIN_CLIENT_SECRET:
         raise HTTPException(
@@ -158,16 +154,17 @@ async def linkedin_callback(
         # if token already exists in database from a concurrent or previous request, redirect to dashboard
         existing_record = get_linkedin_token_record()
         if existing_record and existing_record.get("access_token"):
-            return RedirectResponse(url="/")
+            resp = RedirectResponse(url="/")
+            resp.delete_cookie("linkedin_oauth_state", path="/")
+            return resp
 
         if error_template.exists():
             html_content = error_template.read_text(encoding="utf-8").replace("{{ERROR_MESSAGE}}", err_msg)
-            return HTMLResponse(status_code=status.HTTP_400_BAD_REQUEST, content=html_content)
-
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"LinkedIn token exchange failed: {err_msg}",
-        )
+            resp = HTMLResponse(status_code=status.HTTP_400_BAD_REQUEST, content=html_content)
+        else:
+            resp = HTMLResponse(status_code=status.HTTP_400_BAD_REQUEST, content=f"<h2>Error: {err_msg}</h2>")
+        resp.delete_cookie("linkedin_oauth_state", path="/")
+        return resp
 
     access_token = token_data["access_token"]
     refresh_token = token_data.get("refresh_token")
@@ -223,9 +220,13 @@ async def linkedin_callback(
         html = html.replace("{{PERSON_URN}}", person_urn)
         html = html.replace("{{EXPIRES_IN}}", str(expires_in or "N/A"))
         html = html.replace("{{REFRESH_STATUS}}", "Available (Auto-refresh on)" if refresh_token else "Standard Token")
-        return HTMLResponse(content=html)
+        resp = HTMLResponse(content=html)
+        resp.delete_cookie("linkedin_oauth_state", path="/")
+        return resp
 
-    return HTMLResponse(content=f"<h2>LinkedIn Connected! User: {user_name}</h2><a href='/'>Dashboard</a>")
+    resp = HTMLResponse(content=f"<h2>LinkedIn Connected! User: {user_name}</h2><a href='/'>Dashboard</a>")
+    resp.delete_cookie("linkedin_oauth_state", path="/")
+    return resp
 
 
 # linkedin token metadata endpoint
