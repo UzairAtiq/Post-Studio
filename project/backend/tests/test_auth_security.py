@@ -169,6 +169,30 @@ def test_linkedin_status_endpoint_with_session():
     assert "token_preview" in data
 
 
+def test_linkedin_status_unauthenticated_does_not_leak_urn():
+    """Verify unauthenticated visitors receive authenticated: False and no person URN or token preview."""
+    client = TestClient(app)
+    # Ensure a default token exists in database to verify fallback does not expose it
+    save_linkedin_token(
+        access_token="default_secret_token_xyz",
+        person_urn="urn:li:person:owner_private_urn",
+        token_id="default",
+        expires_in=7200,
+    )
+
+    # Unauthenticated visitor (no session cookie)
+    res = client.get("/linkedin/status")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["authenticated"] is False
+    assert "person_urn" not in data
+    assert "token_preview" not in data
+
+    # Refresh endpoint must require authentication
+    refresh_res = client.post("/linkedin/refresh")
+    assert refresh_res.status_code == 401
+
+
 def test_linkedin_logout():
     """Verify /linkedin/logout revokes session and clears cookie."""
     client = TestClient(app)

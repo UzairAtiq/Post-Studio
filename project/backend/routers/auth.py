@@ -11,6 +11,7 @@ import requests
 from config.settings import (
     LINKEDIN_CLIENT_ID,
     LINKEDIN_CLIENT_SECRET,
+    SLACK_IGNORE_LINKEDIN_EMAIL,
 )
 from services.storage import (
     create_session,
@@ -317,8 +318,8 @@ async def linkedin_callback(
         token_id="default",
     )
 
-    # Attempt to link user's Slack account by email in the shared Slack workspace
-    if user_email:
+    # Attempt to link user's Slack account by email in the shared Slack workspace (if not disabled by flag)
+    if user_email and not SLACK_IGNORE_LINKEDIN_EMAIL:
         try:
             from services.slack import lookup_slack_user_id
 
@@ -333,6 +334,8 @@ async def linkedin_callback(
                 logger.info(f"User email '{user_email}' not found in Slack workspace; Slack unlinked.")
         except Exception as slack_err:
             logger.warning(f"Failed to lookup or link Slack user during callback: {slack_err}")
+    elif SLACK_IGNORE_LINKEDIN_EMAIL:
+        logger.info("SLACK_IGNORE_LINKEDIN_EMAIL flag is active: skipped auto-linking Slack with LinkedIn email.")
 
     logger.info(f"successfully authenticated LinkedIn user: {user_name} ({person_urn})")
 
@@ -421,13 +424,16 @@ def linkedin_status(request: Request) -> dict[str, Any]:
     session_id = request.cookies.get("session_id")
     user_sub = get_session_sub(session_id) if session_id else None
 
-    record = None
-    if user_sub:
-        record = get_linkedin_token_record(token_id=user_sub)
+    # If the user has no valid session, return unauthenticated without exposing credentials or person URN
+    if not user_sub:
+        return {
+            "authenticated": False,
+            "expired": False,
+            "redirect_uri": effective_uri,
+            "message": "Not authenticated. Please visit /linkedin/login to authenticate.",
+        }
 
-    # Fallback to default token record if no session-specific record is found
-    if not record:
-        record = get_linkedin_token_record(token_id="default")
+    record = get_linkedin_token_record(token_id=user_sub)
 
     if not record or not record.get("access_token"):
         return {
@@ -437,7 +443,7 @@ def linkedin_status(request: Request) -> dict[str, Any]:
             "message": "No LinkedIn token found. Please visit /linkedin/login to authenticate.",
         }
 
-    token_id = record.get("id", "default")
+    token_id = record.get("id", user_sub)
     valid_token = get_valid_linkedin_access_token(token_id=token_id)
     if not valid_token:
         return {
@@ -476,7 +482,7 @@ def refresh_token_endpoint(request: Request) -> dict[str, Any]:
 
     Steps:
         1. Extract session_id cookie and resolve active user person URN.
-        2. Invoke refresh_linkedin_access_token() against user or default credentials.
+        2. Invoke refresh_linkedin_access_token() against user credentials.
         3. Check result for success.
         4. If failed, raise HTTP 400 with failure explanation.
         5. Return success status dictionary.
@@ -485,13 +491,18 @@ def refresh_token_endpoint(request: Request) -> dict[str, Any]:
         dict[str, Any]: Dictionary confirming successful token refresh.
 
     Raises:
+        HTTPException: 401 Unauthorized if user is not authenticated.
         HTTPException: 400 Bad Request if token refresh fails.
     """
     session_id = request.cookies.get("session_id")
     user_sub = get_session_sub(session_id) if session_id else None
-    token_id = user_sub or "default"
+    if not user_sub:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required to refresh token.",
+        )
 
-    result = refresh_linkedin_access_token(token_id=token_id)
+    result = refresh_linkedin_access_token(token_id=user_sub)
     if not result.get("success"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
