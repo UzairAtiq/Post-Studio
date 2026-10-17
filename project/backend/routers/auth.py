@@ -268,6 +268,7 @@ async def linkedin_callback(
     person_urn = ""
     profile_id_str = None
     user_email = None
+    sub = None
 
     try:
         userinfo_resp = requests.get(
