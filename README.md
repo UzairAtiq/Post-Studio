@@ -2,159 +2,59 @@
 
 🌐 **Live Demo:** [poststudio.uzairatiq.app](https://poststudio.uzairatiq.app/)
 
-An automated, human-in-the-loop pipeline that generates technical LinkedIn posts using Groq LLMs, delivers interactive approval cards to Slack, and publishes approved posts to LinkedIn.
+An automated, human-in-the-loop pipeline that generates technical LinkedIn posts using AI, delivers interactive approval cards to Slack, and publishes approved posts directly to LinkedIn.
 
-**Tech Stack:** LangGraph · MCP · FastAPI · React · Groq
+**Tech Stack:** LangGraph · Model Context Protocol (MCP) · FastAPI · React 18 · Groq / OpenAI · Slack Block Kit · PostgreSQL / SQLite
 
-<p align="center"><img src="assets/output.gif" width="700" alt="Demo"></p>
+<p align="center"><img src="assets/output.gif" width="700" alt="Post Studio Demo"></p>
+
+---
 
 ## Features
 
-* **AI Post Generation** — Drafts technical, engaging LinkedIn posts with Groq LLMs and LangGraph workflows.
-* **Human-in-the-Loop Slack Approvals** — Interactive Slack Block Kit cards with 1-click Approve and Discard actions.
-* **Automated Publishing** — Publishes approved posts to LinkedIn API with automated OAuth 2.0 token refreshes.
-* **Web Dashboard** — React 18 + Vite interface to generate posts, review queue status, and manage connections.
-* **Model Context Protocol (MCP)** — Stdio MCP servers for AI agents to query database records, send Slack messages, and generate/approve posts.
+* **AI Post Generation (BYOK)** — Draft high-impact, professional LinkedIn posts using Groq LLMs or bring your own OpenAI-compatible API key, host, and model (OpenAI, OpenRouter, DeepSeek, Together, Ollama) stored securely in browser `localStorage`.
+* **Human-in-the-Loop Slack Approvals** — Interactive Slack Block Kit approval cards delivered via direct message with 1-click **Approve** and **Discard** actions.
+* **Multi-User Slack Workspace Mapping** — Connect and delink personal Slack accounts with automatic email matching or custom email inputs, paired with instant workspace invite links.
+* **Automated LinkedIn Publishing** — Seamless OAuth 2.0 flow with 60-day token auto-refresh and instant post publication upon Slack approval.
+* **LangGraph Workflow Orchestration** — Resilient state machine with human interruption points, checkpointer recovery across server restarts, and failure fallback alerts.
+* **Model Context Protocol (MCP)** — Native stdio FastMCP servers enabling AI agents to query database records, send Slack messages, and generate/approve posts.
+* **Modern Web Dashboard** — Fast React 18 + Vite + Tailwind interface featuring dark/light modes, GSAP micro-animations, post queue status filtering, and live connection indicators.
 
-## Architecture
+---
+
+## Architecture Overview
 
 ```mermaid
 flowchart LR
-    A["Prompt / Dashboard"] --> B["LangGraph Agent"]
-    B --> C["Groq LLM"]
+    A["Web Dashboard / BYOK"] --> B["LangGraph Agent"]
+    B --> C["LLM (Groq / OpenAI)"]
     C --> D[("Database (pending)")]
-    D --> E["Slack Approval Card"]
+    D --> E["Slack Approval DM"]
     E -->|"Approve"| F["FastAPI /slack/interactions"]
-    E -->|"Discard"| G["Discarded"]
-    F --> H["LinkedIn Post"]
+    E -->|"Discard"| G["State: Discarded"]
+    F --> H["LinkedIn Post Published"]
 ```
 
-## Quickstart
+The system uses a strict layered architecture (`routers -> services -> mcp_servers / database`) and supports both LangGraph state machine execution and legacy procedural flows. 
 
-```bash
-# 1. Clone repository & install dependencies
-git clone https://github.com/UzairAtiq/mcp-langraph-agent.git
-cd mcp-langraph-agent
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r project/backend/requirements.txt
-
-# 2. Configure environment variables
-cp .env.example .env
-```
-
-Fill in the required keys in `.env`:
-* `GROQ_API_KEY`
-* `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`, `SLACK_WORKSPACE_INVITE_URL` — (for multi-user Slack DM approvals; see [Slack Setup Guide](file:///Users/uzair/Developer/mcp-langraph-agent/docs/slack_setup.md))
-* `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET` — (OAuth 2.0 app credentials; see [LinkedIn Setup Guide](file:///Users/uzair/Developer/mcp-langraph-agent/docs/linkedin_setup.md))
-* `POST_FLOW_MODE` — `graph` (default LangGraph post flow with MCP tools and persistence) or `legacy` (procedural flow)
-
-```bash
-# 3. Build frontend & run backend
-cd project/frontend && npm install && npm run build
-cd ../backend && uvicorn main:app --reload --port 8000
-```
-
-Open [http://localhost:8000](http://localhost:8000) to view the dashboard and connect your LinkedIn account.
+👉 *For node lifecycles, execution modes (`graph` vs `legacy`), and layer separation rules, see the [Architecture & Post Flow Guide](docs/architecture.md).*
 
 ---
 
-## Post Flow Architecture & Modes
+## Documentation & Where to Find Everything
 
-The backend supports two interchangeable execution engines configured via `POST_FLOW_MODE`:
-
-* **`legacy` (default)**: Procedural post generation, storage, and Slack approval execution without graph orchestration.
-* **`graph`**: LangGraph workflow with fixed nodes, human-in-the-loop interruption, file-backed checkpointer resilience across server reboots, and thin MCP tool integration.
-
-```mermaid
-flowchart LR
-    A[generate] --> B[save] --> C[request_approval] --> D{interrupt}
-    D -->|approved| E[publish] --> G[final_check] --> H([END])
-    D -->|discarded| F[discard] --> G --> H
-```
-
----
-
-## Running the Application & MCP Servers
-
-### Running the FastAPI Backend
-From the repository root with virtual environment activated:
-```bash
-cd project/backend
-uvicorn main:app --reload --port 8000
-```
-Interactive API documentation is accessible at [http://localhost:8000/docs](http://localhost:8000/docs).
-
-### Running MCP Servers
-MCP servers run over stdio and are invoked using Python module execution with `PYTHONPATH=project/backend`:
-
-- **LinkedIn Server** (Post generation, polling, and approval tools):
-  ```bash
-  PYTHONPATH=project/backend python -m mcp_servers.linkedin_server
-  ```
-- **Database Server** (Customer lookup tool):
-  ```bash
-  PYTHONPATH=project/backend python -m mcp_servers.database_server
-  ```
-- **Slack Server** (Slack notification tool):
-  ```bash
-  PYTHONPATH=project/backend python -m mcp_servers.slack_server
-  ```
+| Guide | Description |
+|---|---|
+| 🚀 **[Local Setup & Running Guide](docs/local_setup.md)** | Step-by-step instructions for running the FastAPI backend, React dashboard, and MCP servers locally. |
+| 🏗️ **[Architecture & Post Flow Guide](docs/architecture.md)** | Deep dive into LangGraph nodes, execution modes (`graph` vs `legacy`), and layered architecture. |
+| 🧪 **[Development & Testing](docs/development.md)** | Running pytest unit tests, test coverage, and benchmark evaluations. |
+| 🔗 **[LinkedIn App & OAuth Setup](docs/linkedin_setup.md)** | Creating the LinkedIn Developer app, OAuth 2.0 scopes, and 60-day token lifecycle. |
+| 💬 **[Slack App & Interactivity Setup](docs/slack_setup.md)** | Configuring Slack Bot tokens, interactivity webhook URLs, and Block Kit approval cards. |
+| 🔌 **[Model Context Protocol (MCP) Guide](project/backend/docs/mcp_servers.md)** | FastMCP stdio server setup, tool specifications, and LLM tool execution. |
+| 📡 **[API Endpoints Reference](project/backend/docs/endpoints.md)** | Full route specifications, request/response models, and execution flows. |
+| ☁️ **[Cloud Deployment Guide](docs/deployment.md)** | Production deployment on Render, custom domains, and PostgreSQL configuration. |
 
 ---
-
-## Architectural Layers & Coding Rules
-
-The backend adheres to a strict layered architecture:
-
-```
-project/
-├── backend/
-│   ├── routers/                # FastAPI endpoint routers (auth, posts, slack, frontend)
-│   ├── services/               # Shared business logic and external integrations
-│   │   ├── storage.py          # Single home for PostgreSQL / SQLite / JSON fallback storage
-│   │   ├── approval.py         # Decision recording, idempotent execution, and polling loop
-│   │   ├── slack_service.py    # Block Kit cards, webhook delivery, card replacement
-│   │   ├── groq_service.py     # Groq LLM post drafting (exception-raising style)
-│   │   └── linkedin_service.py # LinkedIn identity resolution & UGC publishing (dict return style)
-│   ├── mcp_servers/            # Model Context Protocol stdio servers (thin tools)
-│   │   ├── database_server.py  # Customer database lookup tool
-│   │   ├── slack_server.py     # Slack messaging tool
-│   │   └── linkedin_server.py  # Thin tools wrapping services layer
-│   └── main.py                 # FastAPI application assembly and lifecycle
-```
-
-### 1. Routers Layer (`project/backend/routers/`)
-- **What it does:** Handles HTTP requests, parameter validation, authentication redirects, and webhook ingress (`/slack/interactions`, `/posts`, `/linkedin/*`).
-- **Rule for adding code:** Keep routes thin. Validate incoming request parameters, delegate immediately to the appropriate service, and return HTTP responses. Never select database backends or invoke external APIs directly inside route handlers. Direction: `routers -> services`.
-
-### 2. Services Layer (`project/backend/services/`)
-- **What it does:** Encapsulates all domain logic, external API integrations (Groq, LinkedIn, Slack), decision orchestration, and persistence abstraction.
-- **Rule for adding code:** Services must NEVER import from routers, `main.py`, or MCP servers.
-  - All storage backend fallback logic (PostgreSQL -> SQLite -> `posts.json`) lives strictly in `storage.py`. No other file may choose a storage backend.
-  - Decision state transitions and polling live in `approval.py`.
-  - Maintain established error styles: `groq_service` raises exceptions (`ValueError`, `RuntimeError`), while `linkedin_service` returns structured status dictionaries (`{'success': False, 'error': ...}`).
-- Detailed reference: see the [Services Layer Guide](project/backend/docs/services.md).
-
-### 3. MCP Servers Layer (`project/backend/mcp_servers/`)
-- **What it does:** Exposes FastMCP tools over stdio for LLM agents to draft posts, query customer databases, send Slack alerts, and monitor approval decisions.
-- **Rule for adding code:** Keep MCP tools thin. Validate input arguments, call the services layer, and return results. Synchronous waiting tools must enforce timeout bounds using `MAX_APPROVAL_TIMEOUT_SECONDS` (300s). Tools must not implement independent storage access or duplicate service logic.
-
-For complete route definitions, tool catalogs, service responsibilities, and step-by-step flows, see [`project/backend/docs/endpoints.md`](project/backend/docs/endpoints.md).
-
----
-
-## Documentation
-
-* [API Endpoints & Architecture Overview](project/backend/docs/endpoints.md) — Complete route table, MCP tools, services matrix, and execution flows.
-* [API Routers Layer Guide](project/backend/docs/routers.md) — Authentication, post CRUD endpoints, Slack webhook verification, and SPA client-side routing.
-* [Model Context Protocol (MCP) Servers Guide](project/backend/docs/mcp_servers.md) — FastMCP tool definitions, stdio transport, and composite approval workflows.
-* [Shared Services Layer Guide](project/backend/docs/services.md) — Function reference, dependency hierarchy, error paradigms, and addition rules.
-* [Development & Testing](docs/development.md) — Running the LangGraph agent CLI, unit tests, and evaluations.
-* [LinkedIn App & OAuth Setup](docs/linkedin_setup.md) — Developer app creation, permissions, and 60-day token lifecycle.
-* [Slack App & Interactivity Setup](docs/slack_setup.md) — Webhooks, Block Kit approval cards, and interaction callbacks.
-* [Render Cloud Deployment](docs/deployment.md) — 1-click Blueprint deployment and PostgreSQL setup.
-* [Project Structure & Architecture](docs/PROJECT_STRUCTURE.md) — Full codebase directory breakdown and file map.
 
 ## Repository Structure
 
@@ -163,7 +63,7 @@ For complete route definitions, tool catalogs, service responsibilities, and ste
 
 ```
 mcp-langraph-agent/
-├── README.md               # Main project documentation and quickstart
+├── README.md               # Main project overview, features, and documentation index
 ├── render.yaml             # Render Blueprint infrastructure configuration
 ├── .gitignore              # Git ignore rules
 ├── assets/                 # Media and demo assets
@@ -183,6 +83,12 @@ mcp-langraph-agent/
 │   │   └── requirements.txt# Backend dependencies
 │   └── frontend/           # React 18 + Vite + Tailwind dashboard
 ├── docs/                   # Setup guides and architecture documentation
+│   ├── local_setup.md      # Local installation, environment, and execution guide
+│   ├── architecture.md     # Architecture, LangGraph state machine, and layers
+│   ├── development.md      # Testing and development workflows
+│   ├── linkedin_setup.md   # LinkedIn developer credentials guide
+│   ├── slack_setup.md       # Slack app, bot token, and interactivity setup
+│   └── deployment.md       # Render cloud deployment guide
 └── _notes/                 # Plans, prompts, and knowledge graph analysis
 ```
 
