@@ -1211,7 +1211,7 @@ def get_valid_linkedin_access_token(token_id: str = "default") -> str | None:
     expires_at = record.get("expires_at")
     refresh_token = record.get("refresh_token")
 
-    if expires_at and refresh_token:
+    if expires_at:
         try:
             if isinstance(expires_at, str):
                 exp_dt = datetime.fromisoformat(expires_at)
@@ -1221,11 +1221,19 @@ def get_valid_linkedin_access_token(token_id: str = "default") -> str | None:
             if exp_dt.tzinfo is None:
                 exp_dt = exp_dt.replace(tzinfo=timezone.utc)
 
-            if datetime.now(timezone.utc) + timedelta(hours=24) >= exp_dt:
-                logger.info("LinkedIn token nearing expiration or expired. Triggering auto-refresh...")
+            now_utc = datetime.now(timezone.utc)
+
+            # If near expiration (within 24h) and a refresh token is present, attempt refresh
+            if now_utc + timedelta(hours=24) >= exp_dt and refresh_token:
+                logger.info(f"LinkedIn token for {token_id} nearing expiration. Triggering auto-refresh...")
                 refresh_res = refresh_linkedin_access_token(token_id=token_id)
                 if refresh_res.get("success"):
                     return refresh_res.get("token")
+
+            # If expired and cannot be refreshed, return None to prompt re-login
+            if now_utc >= exp_dt:
+                logger.warning(f"LinkedIn token for token_id={token_id} has expired. Re-authentication required.")
+                return None
         except Exception as err:
             logger.warning(f"error checking token expiration date: {err}")
 

@@ -17,6 +17,7 @@ from services.storage import (
     delete_session,
     get_linkedin_token_record,
     get_session_sub,
+    get_valid_linkedin_access_token,
     refresh_linkedin_access_token,
     save_linkedin_token,
 )
@@ -287,15 +288,29 @@ def linkedin_status(request: Request) -> dict[str, Any]:
     if not record or not record.get("access_token"):
         return {
             "authenticated": False,
+            "expired": False,
             "redirect_uri": effective_uri,
             "message": "No LinkedIn token found. Please visit /linkedin/login to authenticate.",
         }
 
-    access_token = record.get("access_token", "")
+    token_id = record.get("id", "default")
+    valid_token = get_valid_linkedin_access_token(token_id=token_id)
+    if not valid_token:
+        return {
+            "authenticated": False,
+            "expired": True,
+            "redirect_uri": effective_uri,
+            "person_urn": record.get("person_urn"),
+            "expires_at": str(record.get("expires_at")),
+            "message": "LinkedIn access token has expired. Please visit /linkedin/login to re-authenticate.",
+        }
+
+    access_token = valid_token
     masked_token = f"{access_token[:8]}...{access_token[-4:]}" if len(access_token) > 12 else "present"
 
     return {
         "authenticated": True,
+        "expired": False,
         "token_preview": masked_token,
         "redirect_uri": effective_uri,
         "person_urn": record.get("person_urn"),
