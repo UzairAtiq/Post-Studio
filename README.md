@@ -1,6 +1,6 @@
 # LinkedIn Post Automation Agent
 
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/UzairAtiq/mcp-langraph-agent)
+🌐 **Live Demo:** [poststudio.uzairatiq.app](https://poststudio.uzairatiq.app/)
 
 An automated, human-in-the-loop pipeline that generates technical LinkedIn posts using Groq LLMs, delivers interactive approval cards to Slack, and publishes approved posts to LinkedIn.
 
