@@ -27,6 +27,9 @@ SLACK_SIGNING_SECRET = os.getenv("SLACK_SIGNING_SECRET", "")
 SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN", "")
 SLACK_WORKSPACE_INVITE_URL = os.getenv("SLACK_WORKSPACE_INVITE_URL", "")
 SLACK_CHANNEL_ID = os.getenv("SLACK_CHANNEL_ID", "")
+SLACK_IGNORE_LINKEDIN_EMAIL = os.getenv(
+    "SLACK_IGNORE_LINKEDIN_EMAIL", "false"
+).lower().strip() in ("true", "1", "yes")
 
 # linkedin oauth credentials and configuration
 LINKEDIN_CLIENT_ID = os.getenv("LINKEDIN_CLIENT_ID")

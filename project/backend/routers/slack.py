@@ -16,6 +16,7 @@ from config.settings import (
     POST_FLOW_MODE,
     SLACK_BOT_TOKEN,
     SLACK_CHANNEL_ID,
+    SLACK_IGNORE_LINKEDIN_EMAIL,
     SLACK_SIGNING_SECRET,
     SLACK_WORKSPACE_INVITE_URL,
 )
@@ -74,7 +75,7 @@ def get_slack_status(
     record = get_linkedin_token_record(token_id=user_sub)
     profile_id_str = record.get("profile_id") if record else None
     email = None
-    if profile_id_str:
+    if not SLACK_IGNORE_LINKEDIN_EMAIL and profile_id_str:
         try:
             profile_data = json.loads(profile_id_str)
             if isinstance(profile_data, dict):
@@ -111,13 +112,14 @@ def recheck_or_connect_slack(
 
     Steps:
         1. Extract authenticated user sub from dependency.
-        2. Determine target email from request body or stored profile record.
+        2. Determine target email from request body or stored profile record (unless ignored by flag).
         3. If no email is available, raise HTTP 400 Bad Request.
-        4. Query Slack API via lookup_slack_user_id(target_email).
-        5. If found, persist mapped Slack user ID via set_slack_user_id.
-        6. If SLACK_CHANNEL_ID is set, invite user to the channel.
-        7. Send friendly confirmation DM to user.
-        8. Return updated connection state, email, and invite URL.
+        4. Validate that input is an email, not a URL.
+        5. Query Slack API via lookup_slack_user_id(target_email).
+        6. If found, persist mapped Slack user ID via set_slack_user_id.
+        7. If SLACK_CHANNEL_ID is set, invite user to the channel.
+        8. Send friendly confirmation DM to user.
+        9. Return updated connection state, email, and invite URL.
 
     Returns:
         dict[str, Any]: Dictionary with success, connected, slack_user_id, and message.
@@ -129,7 +131,7 @@ def recheck_or_connect_slack(
     custom_email = payload.email.strip() if (payload and payload.email and payload.email.strip()) else None
 
     email = custom_email
-    if not email:
+    if not email and not SLACK_IGNORE_LINKEDIN_EMAIL:
         record = get_linkedin_token_record(token_id=user_sub)
         profile_id_str = record.get("profile_id") if record else None
         if profile_id_str:
@@ -143,10 +145,26 @@ def recheck_or_connect_slack(
     if not email:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No email provided or found in LinkedIn profile. Please enter your Slack email.",
+            detail=(
+                "Please enter your Slack account email (LinkedIn email auto-fallback is disabled by flag)."
+                if SLACK_IGNORE_LINKEDIN_EMAIL
+                else "No email provided or found in LinkedIn profile. Please enter your Slack email."
+            ),
         )
 
     clean_email = email.strip()
+
+    # Reject if user accidentally entered a URL instead of an email address
+    if clean_email.startswith(("http://", "https://", "www.", "urn:")):
+        return {
+            "success": False,
+            "connected": False,
+            "slack_user_id": None,
+            "email": clean_email,
+            "invite_url": SLACK_WORKSPACE_INVITE_URL,
+            "message": "Invalid email: You entered a URL instead of an email address. Please enter a valid email address.",
+        }
+
     if not SLACK_BOT_TOKEN:
         return {
             "success": False,
