@@ -1,10 +1,10 @@
 # LinkedIn Post Automation Agent
 
-🌐 **Live Demo:** [poststudio.uzairatiq.app](https://poststudio.uzairatiq.app/)
+**Live Demo:** [poststudio.uzairatiq.app](https://poststudio.uzairatiq.app/)
 
-An automated, human-in-the-loop pipeline that generates technical LinkedIn posts using AI, delivers interactive approval cards to Slack, and publishes approved posts directly to LinkedIn.
+Automated human-in-the-loop pipeline that drafts LinkedIn posts with AI, requests approval via Slack interactive cards, and publishes approved posts directly to LinkedIn.
 
-**Tech Stack:** LangGraph · Model Context Protocol (MCP) · FastAPI · React 18 · Groq / OpenAI · Slack Block Kit · PostgreSQL / SQLite
+**Tech Stack:** LangGraph, Model Context Protocol (MCP), FastAPI, React 18, Groq / OpenAI, Slack Block Kit, PostgreSQL / SQLite
 
 <p align="center"><img src="assets/output.gif" width="700" alt="Post Studio Demo"></p>
 
@@ -12,13 +12,13 @@ An automated, human-in-the-loop pipeline that generates technical LinkedIn posts
 
 ## Features
 
-* **AI Post Generation (BYOK)** — Draft high-impact, professional LinkedIn posts using Groq LLMs or bring your own OpenAI-compatible API key, host, and model (OpenAI, OpenRouter, DeepSeek, Together, Ollama) stored securely in browser `localStorage`.
-* **Human-in-the-Loop Slack Approvals** — Interactive Slack Block Kit approval cards delivered via direct message with 1-click **Approve** and **Discard** actions.
-* **Multi-User Slack Workspace Mapping** — Connect and delink personal Slack accounts with automatic email matching or custom email inputs, paired with instant workspace invite links.
-* **Automated LinkedIn Publishing** — Seamless OAuth 2.0 flow with 60-day token auto-refresh and instant post publication upon Slack approval.
-* **LangGraph Workflow Orchestration** — Resilient state machine with human interruption points, checkpointer recovery across server restarts, and failure fallback alerts.
-* **Model Context Protocol (MCP)** — Native stdio FastMCP servers enabling AI agents to query database records, send Slack messages, and generate/approve posts.
-* **Modern Web Dashboard** — Fast React 18 + Vite + Tailwind interface featuring dark/light modes, GSAP micro-animations, post queue status filtering, and live connection indicators.
+* **AI Post Generation (BYOK):** Generates technical LinkedIn copy using Groq or any OpenAI-compatible provider (OpenAI, OpenRouter, DeepSeek, Ollama) configured in browser localStorage.
+* **Human-in-the-Loop Slack Approvals:** Delivers interactive Block Kit approval cards via Slack DM with 1-click Approve and Discard actions.
+* **Slack User Mapping:** Matches authors to Slack accounts by email, supports custom Slack email linking/delinking, and provides workspace invite links.
+* **Automated LinkedIn Publishing:** Handles OAuth 2.0 flow, 60-day token auto-refresh, and direct UGC post publishing on approval.
+* **LangGraph Orchestration:** State graph with pause/interrupt points for human review and persistent checkpoints across restarts.
+* **Model Context Protocol (MCP):** Stdio FastMCP tools to draft posts, query database records, and monitor approval decisions.
+* **Web Dashboard:** React 18 + Vite interface with light/dark theme, queue status filters, and connection cards.
 
 ---
 
@@ -35,24 +35,24 @@ flowchart LR
     F --> H["LinkedIn Post Published"]
 ```
 
-The system uses a strict layered architecture (`routers -> services -> mcp_servers / database`) and supports both LangGraph state machine execution and legacy procedural flows. 
+The application uses a layered architecture (`routers -> services -> mcp_servers / storage`) and supports both LangGraph state machine execution and procedural legacy execution.
 
-👉 *For node lifecycles, execution modes (`graph` vs `legacy`), and layer separation rules, see the [Architecture & Post Flow Guide](docs/architecture.md).*
+For node lifecycles, execution modes, and architectural boundaries, see the [Architecture & Post Flow Guide](docs/architecture.md).
 
 ---
 
-## Documentation & Where to Find Everything
+## Documentation
 
 | Guide | Description |
 |---|---|
-| 🚀 **[Local Setup & Running Guide](docs/local_setup.md)** | Step-by-step instructions for running the FastAPI backend, React dashboard, and MCP servers locally. |
-| 🏗️ **[Architecture & Post Flow Guide](docs/architecture.md)** | Deep dive into LangGraph nodes, execution modes (`graph` vs `legacy`), and layered architecture. |
-| 🧪 **[Development & Testing](docs/development.md)** | Running pytest unit tests, test coverage, and benchmark evaluations. |
-| 🔗 **[LinkedIn App & OAuth Setup](docs/linkedin_setup.md)** | Creating the LinkedIn Developer app, OAuth 2.0 scopes, and 60-day token lifecycle. |
-| 💬 **[Slack App & Interactivity Setup](docs/slack_setup.md)** | Configuring Slack Bot tokens, interactivity webhook URLs, and Block Kit approval cards. |
-| 🔌 **[Model Context Protocol (MCP) Guide](project/backend/docs/mcp_servers.md)** | FastMCP stdio server setup, tool specifications, and LLM tool execution. |
-| 📡 **[API Endpoints Reference](project/backend/docs/endpoints.md)** | Full route specifications, request/response models, and execution flows. |
-| ☁️ **[Cloud Deployment Guide](docs/deployment.md)** | Production deployment on Render, custom domains, and PostgreSQL configuration. |
+| **[Local Setup Guide](docs/local_setup.md)** | Run FastAPI backend, React dashboard, and MCP servers locally. |
+| **[Architecture & Post Flow Guide](docs/architecture.md)** | LangGraph nodes, execution modes, and layered design. |
+| **[Development & Testing Guide](docs/development.md)** | Run pytest test suite and evaluations. |
+| **[LinkedIn Setup Guide](docs/linkedin_setup.md)** | Create LinkedIn Developer App, configure OAuth scopes, and tokens. |
+| **[Slack Setup Guide](docs/slack_setup.md)** | Configure Slack bot, interactivity webhook, and Block Kit. |
+| **[MCP Servers Guide](project/backend/docs/mcp_servers.md)** | FastMCP stdio server setup and tool definitions. |
+| **[API Endpoints Reference](project/backend/docs/endpoints.md)** | Route table, request/response schemas, and execution flows. |
+| **[Cloud Deployment Guide](docs/deployment.md)** | Production deployment on Render and PostgreSQL configuration. |
 
 ---
 
