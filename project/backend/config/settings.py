@@ -32,6 +32,7 @@ LINKEDIN_REDIRECT_URI = os.getenv(
     "LINKEDIN_REDIRECT_URI",
     "http://localhost:8000/linkedin/callback",
 )
+TOKEN_ENCRYPTION_KEY = os.getenv("TOKEN_ENCRYPTION_KEY")
 
 # langfuse observability configuration
 LANGFUSE_SECRET_KEY = os.getenv("LANGFUSE_SECRET_KEY")
