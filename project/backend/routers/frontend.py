@@ -9,7 +9,7 @@ router = APIRouter(tags=["Frontend"])
 
 
 # root dashboard endpoint
-@router.get("/", response_class=HTMLResponse)
+@router.api_route("/", methods=["GET", "HEAD"], response_class=HTMLResponse)
 async def root_dashboard() -> HTMLResponse:
     """Serve the root dashboard HTML page.
 
